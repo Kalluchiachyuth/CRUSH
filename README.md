@@ -5,7 +5,7 @@
 ### What is Crush?
 CRUSH (**C**ompartmental **R**efinement for **U**ltraprecise **S**tratification within **H**i-C) is a tool that can identify fine-scale compartments in chromatin conformation matrices. It has successfully identified compartments in Hi-C, Micro-C, and Single-Cell Hi-C. CRUSH specializes in identifying fine-scale compartments at high resolutions with significantly lower read depth than other compartment calling tools.  
 #### Visual Algorithmic Explanation:
-![](/examples/figures/vis_abstract.png)
+![](/examples/figures/CRUSHdiag.png)
 
 ### How to install CRUSH
 
