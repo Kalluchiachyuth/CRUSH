@@ -2,7 +2,7 @@
 # CRUSH
 
 
-### What is Crush?
+### What is CRUSH?
 CRUSH (**C**ompartmental **R**efinement for **U**ltraprecise **S**tratification within **H**i-C) is a tool that can identify fine-scale compartments in chromatin conformation matrices. It has successfully identified compartments in Hi-C, Micro-C, and Single-Cell Hi-C. CRUSH specializes in identifying fine-scale compartments at high resolutions with significantly lower read depth than other compartment calling tools.  
 #### Visual Algorithmic Explanation:
 ![CRUSH](/examples/figures/CRUSHdiag.png)
@@ -10,7 +10,7 @@ CRUSH (**C**ompartmental **R**efinement for **U**ltraprecise **S**tratification 
 ### How to install CRUSH
 
 _Dependencies_
-
+```
 BASH environment 
 
 bedtools (intersectBed)
@@ -28,7 +28,7 @@ scipy
 statsmodels
 
 tqdm
-
+```
 
 After these dependencies are installed, simply clone this repository. 
 
