@@ -12,29 +12,19 @@ CRUSH (**C**ompartmental **R**efinement for **U**ltraprecise **S**tratification 
 _Dependencies_
 ```
 BASH environment 
-
 bedtools (intersectBed)
-
 cooler (if using .mcool files)
-
 python3
-
 hicstraw (if working with .hic files)
-
 numpy
-
 scipy
-
 statsmodels
-
 tqdm
 ```
 
 After these dependencies are installed, simply clone this repository. 
 
 To run CRUSH, you may want to make the tool directly executable. e.g. sudo chmod +x CRUSH/CRUSH_v1.0
-
-Alternatively, you can call up CRUSH using bash. e.g. bash CRUSH/CRUSH_v1.0
 
 
 ### How to use CRUSH
@@ -70,6 +60,7 @@ CRUSH has other optional parameters. We do not recommend that you change these u
 
 CRUSH_v1.0 --help
 
+```
 usage : CRUSH_vX.X -i HIC  -g SIZEFILE -a ABED -b BBED | FASTA -r FINERESOLUTION [-cpu CPU] [-w WINDOW] [-h]
 Use option -h|--help for more information
 
@@ -80,60 +71,35 @@ OPTIONS:
 -h|--help                :  Display this help menu
 
 --------------------------REQUIRED PARAMETERS------------------
-
 -i|--hic                 :  Input .hic/.cooler/.mcool file by specifying the path. (e.g., '/path/to/ file.hic or file.mcool or file.cooler)
-
 -g|--genomesize              :  Specify path to a chromosome size file with two columns corresponding to chromosome and size respectively.
-
 -a|--initialA                :  Specify path to a bed file with the regions for initializing A. For example, gene annotations e.g. hg19genes.bed.
-
 -b|--initialB                :  Specify path to either a fasta file or to a bed file for initializing B. If you specify a fasta file, we will calculate intialB from gc content.
-
 -r|--res                 :  Resolution desired.
-
 ---------------
 
 --------------------------OPTIONAL PARAMETERS------------------
-
 -o|--outpre              :  Set this if you want to specify a prefix for the output files
-
 -c|--cpu               :  Set the value for cpu number of threads to use. Default is 1.
-
 -n|--no-merge            :  Set this option to 1 to keep each resolution as a separate output file. Default is to merge in a way that provides maximum resolution.
-
 -A|--adjustment          :  Set this option to 1 to include a adjustment of CRUSH values at the end. This adjustment shifts values based on any internal skewing of the data. Do not set this if using CRUSH to compare between two Hi-C maps.
-
 -d|--distance            :  Using this option will filter out the distance next to the diagonal. Default is 0 which considers everything.
-
 -u|--upperlim            :  The upperlimit of the distance away from the diagonal to consider. Default is 0 so that it considers the whole chromosome.
-
 -t|--trackline           :  Set to 0 if you want to disable printing a bedgraph trackline header.
-
 -T|--threshold           :  Distance normalized threshold to filter out extreme outliers.
-
 -k|--keeptracks          :  Set to 1 in order to keep separate A and B tracks for the probability of interacting with bed file vs other regions.
-
 -l|--lowerthresh         :  Set the value for lowerthresh.
-
 -w|--window              :  Set to perform a sliding window average of the scores at individual resolutions. Default is to calculate the appropriate window based on sequencing depth. Set to 1 to remove sliding window.
-
 -v|--verbose             :  Set to 1 to enable verbose mode showing extensive messages.
-
 -S|--switch              :  Set this option to 0 for bypassing re-initialization. Default is 1.
-
 -C|--cleanup             :  Set the value to 0 to keep the temporary files. Default is 1.
-
 -E|--endZ                :  Set the value for endZ. 
-
 -x|--exclbed             :  Set the value for exclbed.
-
 -q|--qvalue              :  Set the qvalue threshold. default 0.05. Set to 0 to not perform qvalue filtering. The qvalues will be reported as a separate track regardless.
-
 -u|--use                 :  Whether to use of overwrite existing GI tracks previously calculated at individual resolutions. Set this option to u to use previous calculations. Default is to recalculate. This option is useful for merging resolutions.
-
 -f|--tmpfolder         :  Set this if you want to name the temporary folder yourself. Make sure it doesn't already exist in your current working directory. Default is to name it CRUSHtmp with a random number.
-
 -m|--maxres             : Set this to the coarsest resolution you want to consider. Default is to check every resolution present in the .hic or .mcool file between 2500000 and your desired resolution to inform each other.
+```
 
 ### Output Files
 
