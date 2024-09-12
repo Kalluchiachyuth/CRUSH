@@ -1313,9 +1313,8 @@ mkdir $crushdir
 cd $crushdir
 
 # Reading Resolutions
-if [ $juiceorcool -eq 0 ]
-then
-cat << EOF > listres.py
+if [ $juiceorcool -eq 0 ]; then
+    cat << EOF > listres.py
 import hicstraw
 hic = hicstraw.HiCFile("$hicpath")
 totres=hic.getResolutions()
@@ -1330,10 +1329,12 @@ EOF
 res=`python listres.py`
 
 else
-reslist=`cooler ls $hicpath | sed 's/\//\t/g' | awk -v var=$res -v cres=$coarsestres '{if (($NF >= var) && ($NF <= cres)) print $NF}' | sort -k 1bnr,1b --stable | awk '{if (NR == 1) printf "%s", $1; else printf ",%s", $1}' | awk '{print $0}'`
-res=$reslist
-fi
 
+reslist=`cooler ls $hicpath | sed 's/\//\t/g' | awk -v var=$res -v cres=$coarsestres '{if (($NF >= var) && ($NF <= cres)) print $NF}' | sort -k 1bnr,1b --stable | awk '{if (NR == 1) printf "%s", $1; else printf ",%s", $1}' | awk '{print $0}'`
+
+res=$reslist
+
+fi
 
 # Check for fasta
 isfasta=`head -1 $fastafile | awk '{if ($1 ~ /^>/) print 1; else print 0}'`
@@ -1344,21 +1345,19 @@ echo "sizes-file: $sizefile"
 
 # Check sizefile
 numcolumns=`mawk '{if (NF != 2) print $0}' $sizefile | wc -l`
-if [ "$numcolumns" -gt 0 ]
-then
-echo "size file is incorrect format. It should be two columns with chromosome name and size"
-exit 0
+if [ "$numcolumns" -gt 0 ]; then
+    echo "size file is incorrect format. It should be two columns with chromosome name and size"
+    exit 0
 fi
 
 totchroms=`cat $sizefile | wc -l`
 maxres=`echo "$res" | sed "s/,/ /g" | mawk '{max=$1;for(i=2;i<=NF;i++){if($i > max) max = $i} print max}'`
 minres=`echo "$res" | sed "s/,/ /g" | mawk '{min=$1;for(i=2;i<=NF;i++){if($i < min) min = $i} print min}'`
 
-if [ $isfasta == "1" ]
-then
-echo "Fasta-file: $fastafile"
+if [ $isfasta == "1" ]; then
+    echo "Fasta-file: $fastafile"
 else
-echo "initial-B: $fastafile"
+    echo "initial-B: $fastafile"
 fi
 
 resbins=`echo "size_bins"".bed"`
@@ -1366,52 +1365,45 @@ gcfile=`echo "gc_bins"".txt"`
 gc_g_ga=`echo "gc_g_ga_bins"".bed"`
 Bbins=`echo "Bbins"".bed"`
 
-if [ $minres -ge 500 ]
-then
-cat $sizefile | awk -v myres=500 '{for (i=0;i<=$2;i+=myres) print $1"\t"i"\t"i+myres}' > $resbins
-echo "$resbins calculated at 500bp resolution"
-
+if [ $minres -ge 500 ]; then
+    cat $sizefile | awk -v myres=500 '{for (i=0;i<=$2;i+=myres) print $1"\t"i"\t"i+myres}' > $resbins
+    echo "$resbins calculated at 500bp resolution"
 else
-
-cat $sizefile | awk -v myres=$minres '{for (i=0;i<=$2;i+=myres) print $1"\t"i"\t"i+myres}' > $resbins
-echo "$resbins calculated at ""$minres"" resolution"
+    cat $sizefile | awk -v myres=$minres '{for (i=0;i<=$2;i+=myres) print $1"\t"i"\t"i+myres}' > $resbins
+    echo "$resbins calculated at ""$minres"" resolution"
 fi
 
 wait
 
-if [ $isfasta == "1" ]
-then
-echo "Now, calculating the gc content:"
-bedtools nuc -fi $fastafile -bed $resbins > $gcfile
-wait
+if [ $isfasta == "1" ]; then
+    echo "Now, calculating the gc content:"
+    bedtools nuc -fi $fastafile -bed $resbins > $gcfile
+    wait
 
-# Created a %G/%G+%A file in 7th column
-cat $gcfile | grep -v user | cut -f 1-5 | awk '{print $0"\t"($4+$5)}' | awk '{if ($6 > 0) print $0}' | awk '{print $0"\t"($5/$6)}' > $gc_g_ga
-wait
+    # Created a %G/%G+%A file in 7th column
+    cat $gcfile | grep -v user | cut -f 1-5 | awk '{print $0"\t"($4+$5)}' | awk '{if ($6 > 0) print $0}' | awk '{print $0"\t"($5/$6)}' > $gc_g_ga
+    wait
 
-# Calculating mean and SD for the whole genome and then subtracting 2SD from the mean
-gc_thresh=`cat $gc_g_ga | awk '{s+=$7; ss+=$7*$7; linecount+=1} END{print m=s/linecount, sqrt(ss/linecount-m^2)}' | awk '{print $0}' | awk '{print $1 - 1*$2}'`
+    # Calculating mean and SD for the whole genome and then subtracting 2SD from the mean
+    gc_thresh=`cat $gc_g_ga | awk '{s+=$7; ss+=$7*$7; linecount+=1} END{print m=s/linecount, sqrt(ss/linecount-m^2)}' | awk '{print $0}' | awk '{print $1 - 1*$2}'`
 
-if [ $verbose -gt 0 ]
-then
-echo "gc threshold is ""$gc_thresh"
-fi
+    if [ $verbose -gt 0 ]; then
+        echo "gc threshold is ""$gc_thresh"
+    fi
 
-# Generating the bins by considering the bins below
-cat $gc_g_ga | awk -v thresh=$gc_thresh '{if ($7 < thresh) print $0}' > $Bbins
-wait
-echo "Finished generating Bbins file for all chromosomes "
-
+    # Generating the bins by considering the bins below
+    cat $gc_g_ga | awk -v thresh=$gc_thresh '{if ($7 < thresh) print $0}' > $Bbins
+    wait
+    echo "Finished generating Bbins file for all chromosomes "
 else
-cat $fastafile > $Bbins
+    cat $fastafile > $Bbins
 fi
 
-if [ $endZ == 0 ]
-then
-endZ=`echo "$minres"`
+if [ $endZ == 0 ]; then
+    endZ=`echo "$minres"`
 fi
 
-# Here is where I am running Eigen Block after reslist
+# Eigenvector Block 
 
 EVAstates="EVAstates.bed"
 EVBstates="EVBstates.bed"
@@ -1496,57 +1488,62 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
         #Final Processing of bedgraphs
 
         finaloutie=`echo "$outpre""mergedCrush_""$myres"".bedgraph"`
-        finalpoutie=`echo "$outpre""mergedqvalue_""$myres"".bedgraph"`
-
         Crush_todelete=`echo "Crush_todelete_""$myres""_reprocess"`
-        pval_todelete=`echo "pval_todelete_""$myres""_reprocess"`
-
+        
         cat Crush_reprocess*.bedgraph | mawk -v minr=$myres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4/int($3-$2)}' | mawk -v mr=$myres '{for (i=$2;i<$3;i++) print $1":"int(i)*mr":"(int(i)+1)*mr"\t"$4}' | mawk '{c1[$1] += $2; c2[$1]++} END {for (i in c1) print i"\t"c1[i]/c2[i]}' | sed 's/:/\t/g' > $finaloutie 2> smallerrors
-        cat pvalues_reprocess*.bedgraph | mawk -v minr=$myres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4}' | mawk -v mr=$myres '{for (i=$2;i<$3;i++) print $1":"int(i)*mr":"(int(i)+1)*mr"\t"$4}' | awk '{c1[$1] += log($2)/log(10); c2[$1]++} END {for (i in c1) print i"\t"10**(c1[i]/c2[i])}' | sed 's/:/\t/g' | sort -k 1,1 -V -k 2bn,2b --stable > $finalpoutie 2> smallerrors
 
-        echo "Running BH correction"
-        BHcorrection $finaloutie
-        wait
-        mv bhcorrected $finalpoutie
-        wait
+        #p-value calculation for the minimum requirement
+        if [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then
+            finalpoutie=`echo "$outpre""mergedqvalue_""$myres"".bedgraph"`
+            cat pvalues_Re*.bedgraph | mawk -v minr=$myres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4}' | mawk -v mr=$myres '{for (i=$2;i<$3;i++) print $1":"int(i)*mr":"(int(i)+1)*mr"\t"$4}' | awk '{c1[$1] += log($2)/log(10); c2[$1]++} END {for (i in c1) print i"\t"10**(c1[i]/c2[i])}' | sed 's/:/\t/g' | sort -k 1,1 -V -k 2bn,2b --stable > $finalpoutie 2> smallerrors
 
-        GIave=`cat $finaloutie | mawk '{if ($4 < 0) sum+=($4*-1); else sum+=($4)} END {print sum/NR}' `
+            echo "Running BH correction"
+            BHcorrection $finaloutie
+            wait
+            mv bhcorrected $finalpoutie
+            wait
 
-        if [ $(bc <<< "$qthresh > 0") -eq 1 ]
-        then
+            GIave=`cat $finaloutie | mawk '{if ($4 < 0) sum+=($4*-1); else sum+=($4)} END {print sum/NR}' `
 
-        finaloutiefilt=`echo "$outpre""mergedCrush_""$myres""_qfiltered_reprocess.bedgraph"`
-        filt_todelete=`echo "tmpcrushfiltered_""$myres""_reprocess"`
+            if [ $(bc <<< "$qthresh > 0") -eq 1 ]; then
 
-        mawk -v fdr=$qthresh -v var=$GIave 'NR==FNR {a[$1":"$2":"$3] = $4; next} {if (a[$1":"$2":"$3] <= fdr) print $1"\t"$2"\t"$3"\t"$4/(var/100)}'  $finalpoutie $finaloutie> $finaloutiefilt
+                finaloutiefilt=`echo "$outpre""mergedCrush_""$myres""_qfiltered_reprocess.bedgraph"`
+                filt_todelete=`echo "tmpcrushfiltered_""$myres""_reprocess"`
 
+                mawk -v fdr=$qthresh -v var=$GIave 'NR==FNR {a[$1":"$2":"$3] = $4; next} {if (a[$1":"$2":"$3] <= fdr) print $1"\t"$2"\t"$3"\t"$4/(var/100)}'  $finalpoutie $finaloutie> $finaloutiefilt
+
+            fi
         fi
 
-        if [ $trackline -eq 0 ]
-        then
+        if [ $trackline -eq 0 ]; then
+            cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' > $Crush_todelete
 
-        cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' > $Crush_todelete
-        cat $finalpoutie | mawk '{print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
-
+            if [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then 
+                pval_todelete=`echo "pval_todelete_""$myres""_Re"`
+                cat $finalpoutie | mawk '{print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
+                wait
+            fi
         else
 
-        cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$0; else print $0}' > $Crush_todelete
-        cat $finalpoutie | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$1"\t"$2"\t"$3"\t"$4; else print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
-        wait
+            cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$0; else print $0}' > $Crush_todelete
+            if [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then 
+                pval_todelete=`echo "pval_todelete_""$myres""_Re"`
+                cat $finalpoutie | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$1"\t"$2"\t"$3"\t"$4; else print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
+                wait
+
+            fi    
         fi
 
-        if [ $trackline -gt 0 ] && [ $(bc <<< "$qthresh > 0") -eq 1 ]
-        then
+        # Apply BH correlation and filter if necessary
+        if [ $trackline -gt 0 ] && [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then
 
-        cat $finaloutiefilt | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20,20 autoScale off\n"$0; else print $0}' > $filt_todelete
-        wait
+            cat $finaloutiefilt | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20,20 autoScale off\n"$0; else print $0}' > $filt_todelete
+            wait
 
-        mv $filt_todelete $finaloutiefilt
-        mv $Crush_todelete $finaloutie
-        mv $pval_todelete $finalpoutie
-
-        wait
-
+            mv $filt_todelete $finaloutiefilt
+            mv $Crush_todelete $finaloutie
+            mv $pval_todelete $finalpoutie
+            wait
         fi
 
         ## Refixing the extra bins
@@ -1559,23 +1556,19 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
         cat $finaloutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $finaloutie2
         mv $finaloutie2 $finaloutie
 
-        if [ $(bc <<< "$qthresh > 0") -eq 1 ]
-        then
-
-        cat $finaloutiefilt | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $filt_todelete
-        wait
-        mv $filt_todelete $finaloutiefilt
+        if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then
+            cat $finaloutiefilt | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $filt_todelete
+            wait
+            mv $filt_todelete $finaloutiefilt
+            mv $finalpoutie ../
         fi
 
         mv $finaloutie ../
-        mv $finalpoutie ../
 
-        if [ $(bc <<< "$qthresh > 0") -eq 1 ]
-        then
 
-        mv $finaloutiefilt ../
+        if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then
+            mv $finaloutiefilt ../
         fi
-
     fi
 done
 
@@ -1587,50 +1580,35 @@ exit 0
 fi
 
 countres=0
-for totres in $(echo $res | sed "s/,/\n/g" | sort -k 1bn,1b --stable | sed "s/\n/ /g" )
-do
-echo "$totres" >> GIrestmpfile
-countres=$((countres+1))
+for totres in $(echo $res | sed "s/,/\n/g" | sort -k 1bn,1b --stable | sed "s/\n/ /g" ); do
+    echo "$totres" >> GIrestmpfile
+    countres=$((countres+1))
 done
 
-if [ $countres -le 1 ]
-then
-echo "Only one resolution listed, so nothing to merge. Check Crush_""$totres"".bedgraph for the single resolution GI score"
+if [ $countres -le 1 ]; then
+    echo "Only one resolution listed, so nothing to merge. Check Crush_""$totres"".bedgraph for the single resolution GI score"
 
-
-rm AbinsfromGI_*.txt 2> smallerrors
-rm BbinsfromGI_*.txt 2> smallerrors
-rm newAbinsGI_*.txt 2> smallerrors
-rm newBbinsGI_*.txt 2> smallerrors
-rm non_newAbinsGI_*.txt 2> smallerrors
-rm non_newBbinsGI_*.txt 2> smallerrors
-rm combined_newAbinsGI_*.txt 2> smallerrors
-rm combined_newBbinsGI_*.txt 2> smallerrors
-rm smallerrors
-exit 0
+    rm AbinsfromGI_*.txt 2> smallerrors
+    rm BbinsfromGI_*.txt 2> smallerrors
+    rm newAbinsGI_*.txt 2> smallerrors
+    rm newBbinsGI_*.txt 2> smallerrors
+    rm non_newAbinsGI_*.txt 2> smallerrors
+    rm non_newBbinsGI_*.txt 2> smallerrors
+    rm combined_newAbinsGI_*.txt 2> smallerrors
+    rm combined_newBbinsGI_*.txt 2> smallerrors
+    rm smallerrors
+    exit 0
 fi
 
 rm GIrestmpfile
 
-
-Afinalout_reprocess=`echo "mergedCrush_A_""$minres""_reprocess.bedgraph"`
-Bfinalout_reprocess=`echo "mergedCrush_B_""$minres""_reprocess.bedgraph"`
-
-if [ $keeptracks -eq 1 ]
-then
-
-cat ACrush_reprocess_*.bedgraph | mawk -v minr=$minres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4}' | mawk -v mr=$minres '{for (i=$2;i<$3;i++) print $1"\t"int(i)*mr"\t"(int(i)+1)*mr"\t"$4}' | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable | groupBy -i stdin -g 1,2,3 -c 4 -o sum > $Afinalout_reprocess 2> smallerrors&
-cat BCrush_reprocess_*.bedgraph | mawk -v minr=$minres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4}' | mawk -v mr=$minres '{for (i=$2;i<$3;i++) print $1"\t"int(i)*mr"\t"(int(i)+1)*mr"\t"$4}' | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable | groupBy -i stdin -g 1,2,3 -c 4 -o sum > $Bfinalout_reprocess 2> smallerrors &
-
-fi
 wait
 
 cd ../
 
-if [ "$cleanup" -gt 0 ]
-then
-echo "cleaning up"
-rm -r $crushdir
+if [ "$cleanup" -gt 0 ]; then
+    echo "cleaning up"
+    rm -r $crushdir
 fi
 
 if [ "$reshift" -gt 0 ]; then
@@ -1642,7 +1620,7 @@ if [ "$reshift" -gt 0 ]; then
 
         myres=${res_array[$i]}
 
-        if [ $i -eq 0 ]; then
+        if [ $i -eq 1 ]; then
             echo "almost done..."
             oldres=`echo "$myres"`
             oldinnie=`echo "$outpre""mergedCrush_""$myres"".bedgraph"`
@@ -1672,106 +1650,6 @@ fi
 
 echo "Finished! Check the output."
 echo -e "Note: Please keep in mind that we are using resolution walking.\nIf the coarsest resolution doesn't match the compartment pattern at that resolution, please consider re-running with the -m parameter set to start the walking with smaller bins."
-
-#Pearson Correlation:
-echo "Generating Pearson Correlation values for the bedgraphs."
-
-# Create the PearsonCorrelation.py script
-cat << EOF > PearsonCorrelation.py
-import pandas as pd
-from scipy import stats
-import argparse
-
-def average_bins(df, target_resolution):
-    df['Start'] = pd.to_numeric(df['Start'], errors='coerce')
-    df['End'] = pd.to_numeric(df['End'], errors='coerce')
-    df = df.dropna(subset=['Start', 'End'])
-    df['Start'] = df['Start'].astype(int)
-    df['End'] = df['End'].astype(int)
-    df['bin'] = (df['Start'] // target_resolution) * target_resolution
-    df_avg = df.groupby(['Chromosome', 'bin']).agg({'Score': 'mean'}).reset_index()
-    df_avg['End'] = df_avg['bin'] + target_resolution
-    return df_avg[['Chromosome', 'bin', 'End', 'Score']]
-
-def calculate_pearson(control_file, sample_file, resolution):
-    cols = ["Chromosome", "Start", "End", "Score"]
-    control_df = pd.read_csv(control_file, sep="\t", header=None, names=cols, dtype={'Chromosome': str}, comment='t')
-    control_avg = average_bins(control_df, resolution)
-    
-    sample_df = pd.read_csv(sample_file, sep="\t", header=None, names=cols, dtype={'Chromosome': str}, comment='t')
-    sample_avg = average_bins(sample_df, resolution)
-    
-    control_avg["Start"] = control_avg["bin"].astype(str)
-    sample_avg["Start"] = sample_avg["bin"].astype(str)
-    control_avg["Chromosome"] = control_avg["Chromosome"].astype(str)
-    sample_avg["Chromosome"] = sample_avg["Chromosome"].astype(str)
-    control_avg["lame"] = control_avg["Chromosome"] + "_" + control_avg["Start"]
-    sample_avg["lame"] = sample_avg["Chromosome"] + "_" + sample_avg["Start"]
-    
-    merged_df = control_avg.merge(sample_avg, on="lame")
-    pearson_corr = stats.pearsonr(merged_df["Score_x"], merged_df["Score_y"])
-    
-    print(f"{sample_file} Pearson correlation: {pearson_corr[0]}")
-
-def main():
-    parser = argparse.ArgumentParser(description='Calculate Pearson correlation between bedgraph files at different resolutions.', add_help=False)
-    parser.add_argument("-c", "--control", dest="ctl_file", help="Control eigenvector file. 4 column bedgraph.", required=True)
-    parser.add_argument("-s", "--sample", dest="sample_file", help="Sample eigenvector file. 4 column bedgraph.", required=True)
-    parser.add_argument("-r", "--resolution", dest="resolution", help="Resolution of the control eigenvector file.", type=int, required=True)
-    
-    try:
-        args = parser.parse_args()
-    except argparse.ArgumentError:
-        print("Invalid arguments provided. Please provide control, sample, and resolution.")
-        return
-
-    calculate_pearson(args.ctl_file, args.sample_file, args.resolution)
-
-if __name__ == "__main__":
-    main()
-EOF
-
-# Function to determine the control and sample files
-determine_files_and_run() {
-    local dir=$1
-    local prefix=$2
-    
-    # Find all bedgraph files with the specific pattern
-    bedgraph_files=$(find "$dir" -name "${prefix}mergedCrush_*.bedgraph" ! -name "*qfiltered*" ! -name "*reprocess*")
-    
-    # Extract resolutions and sort them
-    resolutions=($(for f in $bedgraph_files; do basename "$f" | sed -E 's/.*_([0-9]+)\.bedgraph/\1/'; done | sort -nr))
-    
-    if [ ${#resolutions[@]} -lt 2 ]; then
-        echo "Not enough resolutions to perform comparison. Exiting."
-        return
-    fi
-    
-    # Use the second highest resolution as the control
-    control_resolution=${resolutions[0]}
-    control_file=$(find "$dir" -name "${prefix}mergedCrush_${control_resolution}.bedgraph" | head -n 1)
-    
-    # Sample files: all files with lower resolutions than control
-    sample_files=()
-    for res in "${resolutions[@]:1}"; do
-        sample_file=$(find "$dir" -name "${prefix}mergedCrush_${res}.bedgraph" | head -n 1)
-        sample_files+=("$sample_file")
-    done
-    
-    # Run the Python script for each sample file
-    echo "Calculating Pearson correlation with control: $control_file"
-    for sample_file in "${sample_files[@]}"; do
-        python PearsonCorrelation.py -c "$control_file" -s "$sample_file" -r "$control_resolution" 2>/dev/null
-    done
-}
-
-# Example usage
-dir="./"  # Directory containing the bedgraph files
-prefix="$outpre"  # Prefix of the bedgraph files
-
-determine_files_and_run "$dir" "$prefix"
-
-echo "Finished! Check the output."
 
 ##########################################
 
