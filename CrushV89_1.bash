@@ -1396,15 +1396,18 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
 
         #Final Processing of bedgraphs
 
-        finaloutie=`echo "$outpre""mergedCrush_""$myres"".bedgraph"`
-        finalpoutie=`echo "$outpre""mergedqvalue_""$myres"".bedgraph"`
-
+        finaloutie=`echo "$outpre""mergedCrush_""$myres"".bedgraph"`     
         Crush_todelete=`echo "Crush_todelete_""$myres""_reprocess"`
+
+        finalpoutie=`echo "$outpre""mergedqvalue_""$myres"".bedgraph"`
         pval_todelete=`echo "pval_todelete_""$myres""_reprocess"`
 
         cat Crush_reprocess*.bedgraph | mawk -v minr=$myres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4/int($3-$2)}' | mawk -v mr=$myres '{for (i=$2;i<$3;i++) print $1":"int(i)*mr":"(int(i)+1)*mr"\t"$4}' | mawk '{c1[$1] += $2; c2[$1]++} END {for (i in c1) print i"\t"c1[i]/c2[i]}' | sed 's/:/\t/g' > $finaloutie 2> smallerrors
-        cat pvalues_reprocess*.bedgraph | mawk -v minr=$myres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4}' | mawk -v mr=$myres '{for (i=$2;i<$3;i++) print $1":"int(i)*mr":"(int(i)+1)*mr"\t"$4}' | awk '{c1[$1] += log($2)/log(10); c2[$1]++} END {for (i in c1) print i"\t"10**(c1[i]/c2[i])}' | sed 's/:/\t/g' | sort -k 1,1 -V -k 2bn,2b --stable > $finalpoutie 2> smallerrors
-
+        
+        if [ $myres -eq $minres ]; then
+            cat pvalues_reprocess*.bedgraph | mawk -v minr=$myres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4}' | mawk -v mr=$myres '{for (i=$2;i<$3;i++) print $1":"int(i)*mr":"(int(i)+1)*mr"\t"$4}' | awk '{c1[$1] += log($2)/log(10); c2[$1]++} END {for (i in c1) print i"\t"10**(c1[i]/c2[i])}' | sed 's/:/\t/g' | sort -k 1,1 -V -k 2bn,2b --stable > $finalpoutie 2> smallerrors
+        fi
+        
         echo "Running BH correction"
         BHcorrection $finaloutie
         wait
@@ -1460,21 +1463,17 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
         cat $finaloutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $finaloutie2
         mv $finaloutie2 $finaloutie
 
-        if [ $(bc <<< "$qthresh > 0") -eq 1 ]
-        then
-
-        cat $finaloutiefilt | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $filt_todelete
-        wait
-        mv $filt_todelete $finaloutiefilt
+        if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then 
+            cat $finaloutiefilt | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $filt_todelete
+            wait
+            mv $filt_todelete $finaloutiefilt
+            mv $finalpoutie ../
         fi
 
         mv $finaloutie ../
-        mv $finalpoutie ../
 
-        if [ $(bc <<< "$qthresh > 0") -eq 1 ]
-        then
-
-        mv $finaloutiefilt ../
+        if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then
+            mv $finaloutiefilt ../
         fi
 
     fi
