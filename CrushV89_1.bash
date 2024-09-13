@@ -29,7 +29,7 @@ crushdir=`echo "CRUSHtmp_""$RANDOM"`
 outpre=""
 norm=NONE #Default
 coarsestres=2500000
-pcalculation=0
+pcalculation=1
 reshift=1
 
 # Trap for cleanup
@@ -127,7 +127,7 @@ function help {
     echo "-C|--cleanup             :  Set the value for cleanup"
     echo "-E|--endZ                :  Set the value for endZ"
     echo "-x|--exclbed             :  Set the value for exclbed"
-    echo "-p|--pcalculation        :  Set to 1 to perform pvalue calculation. Default is 0."
+    echo "-p|--pcalculation        :  Set this option to 0 for bypassing pvalue calculation. Default is 1."
     echo "-q|--qvalue              :  Set the qvalue threshold. default 0.05. Set to 0 to not perform qvalue filtering. The qvalues will be reported as a separate track regardelss."
     echo "-u|--use                 :  Whether to use of overwrite existing GI tracks previously calculated at individual resolutions. Set this option to u to use previous calculations. Default is to recalculate. This option is useful for merging resolutions."     
     echo "-f|--tmpfolder           :  Set this if you want to name the temporary folder youself. Make sure it doesn't already exist in your current working directory. Default is to name it CRUSHtmp with a randomnumber."
@@ -277,7 +277,6 @@ else
     echo "Identified .mcool format. We will use cooler to extract the data and assume you have it installed in your path."
 fi
 
-###################################################################
 
 # Functions in the order of their precedence
 
@@ -323,21 +322,17 @@ process_genes_Bbins() {
         maxres_processed=1 # Set maxres_processed to prevent future initial processing for maxres 
 
         # Processing the genes & Bbins files 
-        #cat $genesfile | mawk -v myres=$maxres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$maxres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
         cat $EVAstates | mawk -v myres=$maxres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$maxres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
 
         # Bbins
-        #cat $Bbins |  mawk -v myres=$maxres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$maxres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $pseudoB
         cat $EVBstates |  mawk -v myres=$maxres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$maxres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $pseudoB
 
     elif [ "$switch" -lt 1 ]; then
 
         # Processing the genes & Bbins files
-        #cat $genesfile | mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
         cat $EVAstates | mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
 
         # Bbins
-        #cat $Bbins |  mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $pseudoB
         cat $EVBstates | mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
 
     else  
@@ -617,159 +612,106 @@ concatenate_best_pcs() {
     echo "Concatenation completed. Full genome eigenvector file: EV_full_genome.bedgraph"
 }
 
+# Function to generate A and B compartmental states
 process_oppocheck_statement() {
-  local innie_genes="$1"
-  local innie_gc="$2"
-  local outie_oppo="$3"
-  local outie_pvalues="$4"
-  local chr="$5"
-  local res="$6"
-  local input_dir="$7"
-  local output_dir="$8"
+    local innie_genes="$1"
+    local innie_gc="$2"
+    local outie_oppo="$3"
+    local chr="$4"
+    local res="$5"
+    local input_dir="$6"
+    local output_dir="$7"
 
-  # Paths for Zfile and RowZ
-  local zfile="${input_dir}/zerofile"
-  local rowZ="${input_dir}/RowZs"
+    # Paths for Zfile and RowZ
+    local zfile="${input_dir}/zerofile"
+    local rowZ="${input_dir}/RowZs"
 
-  # Debugging output to check paths
-  echo "Zfile path: $zfile"
-  echo "RowZ path: $rowZ"
-  echo "Output directory: $output_dir"
+    # Check if files exist
+    if [ ! -f "$zfile" ] || [ ! -f "$rowZ" ]; then
+        echo "Required file missing: $zfile or $rowZ"
+        return 1  # Exit if files are missing
+    fi
 
-  # Check if files exist
-  if [ ! -f "$zfile" ] || [ ! -f "$rowZ" ]; then
-    echo "Required file missing: $zfile or $rowZ"
-    return 1  # Exit if files are missing
-  fi
+    # Process innie_genes, rowZ, and zfile
+    mawk 'NR==FNR { c1[$1] = $2; next } { if ($1 in c1) print $2 "\t" $3; next } { print $0 }' "$innie_genes" "$rowZ" "$zfile" | awk '{ b[$1] += $2; c[$1]++; d[$1] += ($2**2) } END { for (i in b) { print i "\t" (b[i])*(c[i]) "\t" c[i] "\t" b[i]/c[$1] "\t" ((d[i]/(c[$1])-((b[i]/(c[$1]))**2)))**.5 } }' > "${output_dir}/A2removedfile" &
 
-numbinsA=`wc -l $innie_genes | awk '{print $1}'`
-numbinsB=`wc -l $innie_gc | awk '{print $1}'`
+    # Process innie_gc, rowZ, and zfile
+    mawk 'NR==FNR { c1[$1] = $2; next } { if ($1 in c1) print $2 "\t" $3; next } { print $0 }' "$innie_gc" "$rowZ" "$zfile" | awk '{ b[$1] += $2; c[$1]++; d[$1] += ($2**2) } END { for (i in b) { print i "\t" (b[i])*(c[i]) "\t" c[i] "\t" b[i]/c[$1] "\t" ((d[i]/(c[$1])-((b[i]/(c[$1]))**2)))**.5 } }' > "${output_dir}/B2removedfile" &
 
-mawk 'NR==FNR { c1[$1] = $2; next} {if ($1 in c1) print $2"\t"$3; next} {print $0}' $innie_genes $rowZ $zfile | awk '{b[$1]+=$2;c[$1]++;d[$1]+=($2**2)} END { for (i in b) { print i"\t"(b[i])*(c[i])"\t"c[i]"\t"b[i]/c[$1]"\t"((d[i]/(c[$1])-((b[i]/(c[$1]))**2)))**.5 } } ' > "${output_dir}/A2removedfile" &
-mawk 'NR==FNR { c1[$1] = $2; next} {if ($1 in c1) print $2"\t"$3; next} {print $0}' $innie_gc $rowZ $zfile | awk '{b[$1]+=$2;c[$1]++;d[$1]+=($2**2)} END { for (i in b) { print i"\t"(b[i])*(c[i])"\t"c[i]"\t"b[i]/c[$1]"\t"((d[i]/(c[$1])-((b[i]/(c[$1]))**2)))**.5 } } ' > "${output_dir}/B2removedfile" &
+    wait
 
-wait
+    # Calculate the sum of A and B bins
+    myABsum=$(cat "${output_dir}/A2removedfile" "${output_dir}/B2removedfile" | mawk '{ sum += $3 } END { print sum }')
 
-myABsum=`cat "${output_dir}/A2removedfile" "${output_dir}/B2removedfile" | mawk '{sum+=$3} END {print sum}'`
+    wait
 
-wait
+    if [ "$verbose" -gt 0 ]; then
+        end=$(date +%s)
+        seconds=$(echo "$end - $start" | bc)
+        echo "It took $seconds seconds. Comparing A vs B scores for $chr chromosome."
+        start=$(date +%s)
+    fi
 
-if [ "$verbose" -gt 0 ]; then
-end=$(date +%s)
-seconds=$(echo "$end - $start" | bc)
-echo "It took ""$seconds"" seconds. Comparing A vs B scores for ""$mychr"" chromosome."
-start=$(date +%s)
-fi
+    # Calculate the output
+    mawk -v var="$res" -v myABsum="$myABsum" '{ if ($1 in b) b[$1] -= $2; else b[$1] = $2 } END { for (i in b) { if (b[i] != 0) print i "\t" (b[i])/myABsum } }' "${output_dir}/A2removedfile" "${output_dir}/B2removedfile" | sort -k 1bn,1b --stable | mawk -v mchr="$chr" -v myres="$res" -v window="$newwindow" -v OFS="\t" 'BEGIN { slide = 1 } { mod = NR % window; if (NR <= window) { print mchr, int($1), $2; count++ } else { sum -= array[mod] } sum += $2; array[mod] = $2;} (NR % slide) == 0 { print mchr, int($1-((myres*window)/2)), sum/count }' | mawk -v myres="$res" '{ print $1 "\t" $2-int(myres/2)+myres "\t" $2+(int(myres/2))+myres "\t" $3 }' | mawk '{ if ($2 > 0) print $0 }' > "$outie_oppo" 2> "${output_dir}/errorfile"
 
-# Calculating the output
-mawk -v var=$res -v myABsum=$myABsum '{if ($1 in b) b[$1]-=$2; else b[$1]=$2} END { for (i in b) {  if (b[i] != 0) print i"\t"(b[i])/myABsum } } ' "${output_dir}/A2removedfile" "${output_dir}/B2removedfile" | sort -k 1bn,1b --stable | mawk -v mchr=$chr -v myres=$res -v window=$newwindow -v OFS="\t" 'BEGIN{slide=1} {mod=NR%window; if(NR<=window){print mchr, int($1), $2; count++}else{sum-=array[mod]}sum+=$2;array[mod]=$2;} (NR%slide)==0{print mchr,int($1-((myres*window)/2)),sum/count}' | mawk -v myres=$res '{print $1"\t"$2-int(myres/2)+myres"\t"$2+(int(myres/2))+myres"\t"$3}' | mawk '{if ($2 > 0) print $0}' > $outie_oppo 2> "${output_dir}/errorfile"
+    # Process exclusion regions if exclbed file is provided
+    if [ "$exclbed" != 0 ]; then
+        exclbins="${output_dir}/exclbins"
+        excloutie="${output_dir}/exclout_${res}_${chr}"
 
-# Calculating pvalues
-awk 'NR==FNR { c[$1] = $3; m[$1] = $4; sd[$1]=$5; next} {if (($1 in m) && ($3 != 1) && (c[$1] != 1)) print $1"\t"(m[$1]-$4)/((((sd[$1]**2)/c[$1]) + (($5**2)/$3))**.5)"\t"(c[$1] + $3 -2) }' "${output_dir}/A2removedfile" "${output_dir}/B2removedfile" > "${output_dir}/ttable"
+        # Processing the exclusion regions
+        cat "$exclbed" | mawk -v myres="$res" -v mychr="$chr" '{ if ($1 == mychr) print $1 "\t" int($2/myres)*myres "\t" int($3/myres)*myres }' | awk -v myres="$res" '{ for (i = $2; i <= $3; i += myres) b[i] += 1 } END { for (j in b) print j "\t" b[j] }' > "$exclbins"
 
-zfileforpy="${output_dir}/ttable"
-pfileforpy="${output_dir}/ptable"
+        wait
 
-cat << EOF > zlookup.py
-import scipy.stats
-inputfile = "$zfileforpy"
-outfile = "$pfileforpy"
-mybins=[]
-mypvals=[]
-with open(inputfile, 'r') as innie:
-        for line in innie:
-                sline = line.strip()
-                lines = sline.split("\t")
-                mybins.append(str(lines[0]))
-                mytstat = float(lines[1])
-                mydf = int(lines[2])
-                mypvals.append(scipy.stats.norm.sf(abs(mytstat)))
-with open(outfile, 'w') as outie:
-        for w in range(0,len(mybins)):
-                outie.write(str(mybins[w]) + "\t" + str(mypvals[w]) + "\n")
-EOF
-python zlookup.py
+        # Exclude regions from the output
+        mawk 'NR==FNR { c1[$1] = $2; next } { if ($2 in c1); else print $0 }' "$exclbins" "$outie_oppo" > "$excloutie"
 
-mawk -v mchr=$chr -v myres=$res '{print mchr"\t"$1"\t"$1+myres"\t"$2}' "${output_dir}/ptable" > $outie_pvalues
-wait
+        wait
 
-#If exclbed file is given as an input, and the option is turned on, Crush works through this
-if [ "$exclbed" != 0 ]
-then
-exclbins="${output_dir}/exclbins"
-excloutie="${output_dir}/exclout_${res}_${chr}"
+        mv "$excloutie" "$outie_oppo"
+    fi
 
-#Processing the exclusion regions
-cat $exclbed | mawk -v myres=$res -v mychr=$chr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$res '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $exclbins
+    # Adjust compartmental values if needed
+    if [[ "$oppocheck" -gt 0 && "$adjustment" -gt 0 ]]; then
 
-wait
+        amed=`mawk 'NR==FNR { c1[$1] = $2; next} {if ($2 in c1) print $4}' $innie_genes $outie_oppo | mawk '{sum +=$1} END {print sum/NR}'`
+        bmed=`mawk 'NR==FNR { c1[$1] = $2; next} {if ($2 in c1); else print $4}' $innie_genes $outie_oppo | mawk '{sum += $1} END {print sum/NR}'`
 
-#Excluding regions from the output 
-mawk 'NR==FNR { c1[$1] = $2; next} {if ($2 in c1); else print $0}' $exclbins $outie_oppo > $excloutie
+        wait
 
-wait
+        cat $outie_oppo | mawk -v varA=$amed -v varB=$bmed '{print $1"\t"$2"\t"$3"\t"$4-(varA-(varB*-1))}' > $outie2
 
-mv $excloutie $outie_oppo
-fi
+        wait
 
-if [ $keeptracks -eq 1 ]
-then
-rawcomp="${output_dir}/rawcompvectors"
+        mv $outie2 $outie_oppo
 
-if [ $reprocess == 1 ]
-then 
-cat "${output_dir}/A2removedfile" "${output_dir}/B2removedfile" | sort -k 1bn,1b --stable | groupBy -i stdin -g 1 -c 2 -o collapse | sed 's/,/\t/g' | awk -v var=$prev_res -v mchr=$mychr '{print mchr"\t"$1"\t"$1+myres"\t"$2"\t"$3}' | awk '{print $0"\t"$4"\t"$5}' > $rawcomp
-cat $rawcomp | cut -f 1-3,6 > $Aoutie_reprocess
-cat $rawcomp | cut -f 1-3,7 > $Boutie_reprocess
+        #amed=`awk '{if ($4 > 0) print $4}' |  awk '{if (NR == 1) geom=$1; else geom=($1*geom)} END {print geom**(1/NR)}'`
+        #bmed=`awk '{if ($4 < 0) print $4*-1}' |  awk '{if (NR == 1) geom=$1; else geom=($1*geom)} END {print geom**(1/NR)}'`
 
-else
-cat "${output_dir}/A2removedfile" "${output_dir}/B2removedfile" | sort -k 1bn,1b --stable | groupBy -i stdin -g 1 -c 2 -o collapse | sed 's/,/\t/g' | awk -v var=$myres -v mchr=$mychr '{print mchr"\t"$1"\t"$1+myres"\t"$2"\t"$3}' | awk '{print $0"\t"$4"\t"$5}' > $rawcomp
-cat $rawcomp | cut -f 1-3,6 > $Aoutie
-cat $rawcomp | cut -f 1-3,7 > $Boutie
+        #wait
 
-fi
+        # Adjust values using amed and bmed
+        #cat "$outie_oppo" | mawk -v varA="$amed" -v varB="$bmed" '{ print $1 "\t" $2 "\t" $3 "\t" $4 - (varA - varB) }' > "$outie2"
+        #wait
+        #mv "$outie2" "$outie_oppo"
+    fi
 
-fi
+    if [ "$myres" -ge "$endZ" ]; then
 
-if [[ "$oppocheck" -gt 0 && "$adjustment" -gt 0 ]]
-then
+        myendmean=`cat $outie_oppo | mawk '{sum += $4; cnum++} END {print sum/cnum}'`
+        echo "$myendmean"
+        tmpendZ="${output_dir}/tmpendnorm"
+        cat $outie_oppo | mawk -v mymean=$myendmean '{print $1"\t"$2"\t"$3"\t"($4-mymean)}' > $tmpendZ
 
-amed=`mawk 'NR==FNR { c1[$1] = $2; next} {if ($2 in c1) print $4}' $innie_genes $outie_oppo | mawk '{sum +=$1} END {print sum/NR}'`
-bmed=`mawk 'NR==FNR { c1[$1] = $2; next} {if ($2 in c1); else print $4}' $innie_genes $outie_oppo | mawk '{sum += $1} END {print sum/NR}'`
+        wait
 
-wait
-
-#Changed this from outie to outie_oppo
-#Here, Crush is taking the amed and bmed values and doing the operations such as multiplying varB with -1 and then substracting these values from varA
-cat $outie_oppo | mawk -v varA=$amed -v varB=$bmed '{print $1"\t"$2"\t"$3"\t"$4-(varA-(varB*-1))}' > $outie2
-
-wait
-
-mv $outie2 $outie_oppo
-fi
-
-if [ "$res" -ge "$endZ" ]
-then
-
-#Changed this from outie to outie_oppo
-myendmean=`cat $outie_oppo | mawk '{sum += $4; cnum++} END {print sum/cnum}'`
-
-echo "$myendmean"
-
-tmpendZ="${output_dir}/tmpendnorm"
-
-cat $outie_oppo | mawk -v mymean=$myendmean '{print $1"\t"$2"\t"$3"\t"($4-mymean)}' > $tmpendZ
-
-wait
-
-mv $tmpendZ $outie_oppo
-fi
-
-echo "You got this working till here"
-
+        mv $tmpendZ $outie_oppo
+    fi
 }
 
-#Shifter function
+# Shifter function
 run_shifter() {
     local finer_res=$1
     local coarser_res=$2
@@ -803,7 +745,7 @@ run_shifter() {
 }
 
 
-#Separating out A and B regions from the outiefull and intersecting with the genes and Bbins to improve compartments identification
+# Separating out A and B regions from the outiefull and intersecting with the genes and Bbins to improve compartments identification
 separating_ABbins() {
     local separatinginnie=$1
 
@@ -848,7 +790,7 @@ fi
 
 }
 
-#Benjamini-Hochberg Function
+# Benjamini-Hochberg Function
 BHcorrection() {
     local BHinnie=$1
     echo "Generating Benjamini-Hochberg Corrected Values"
@@ -880,274 +822,238 @@ python BHcorrection.py
 
 }
 
+calculate_pvalues() {
+    local output_dir=$1
+    local chr=$2
+    local res=$3
+    local outie_pvalues=$4
+
+    awk 'NR==FNR { c[$1] = $3; m[$1] = $4; sd[$1] = $5; next } { if (($1 in m) && ($3 != 1) && (c[$1] != 1)) print $1 "\t" (m[$1]-$4) / (((sd[$1]**2)/c[$1]) + (($5**2)/$3))**.5 "\t" (c[$1] + $3 -2) }' "${output_dir}/A2removedfile" "${output_dir}/B2removedfile" > "${output_dir}/ttable"
+
+    zfileforpy="${output_dir}/ttable"
+    pfileforpy="${output_dir}/ptable"
+
+    # Generate p-values using Python
+    cat << EOF > zlookup.py
+import scipy.stats
+inputfile = "$zfileforpy"
+outfile = "$pfileforpy"
+mybins = []
+mypvals = []
+with open(inputfile, 'r') as innie:
+    for line in innie:
+        sline = line.strip()
+        lines = sline.split("\t")
+        mybins.append(str(lines[0]))
+        mytstat = float(lines[1])
+        mydf = int(lines[2])
+        mypvals.append(scipy.stats.norm.sf(abs(mytstat)))
+with open(outfile, 'w') as outie:
+    for w in range(len(mybins)):
+        outie.write(str(mybins[w]) + "\t" + str(mypvals[w]) + "\n")
+EOF
+    python zlookup.py
+
+    mawk -v mchr="$chr" -v myres="$res" '{ print mchr "\t" $1 "\t" $1+myres "\t" $2 }' "${output_dir}/ptable" > "$outie_pvalues"
+    wait
+}
 
 # Define arrays to store filenames
 declare -a maxres_processed=0
 
+# Function to process a given resolution and generate output
 process_resolution() {
-    local myres=$1 # Pass the resolution as a parameter
-    local genesblock=$2
+    local myres=$1  # Resolution
+    local genesblock=$2  # Block for gene regions
 
-    if [ $window == 0 ]
-    then
-        # Changed the below line from mawk to awk as mawk was throwing an error while working through script line by line
-        totbins=`cat $sizefile | awk -v var=$myres '{print $1"\t"($2/var)**2}' | awk '{sum += $2} END {print sum}'`
-
+    if [ $window == 0 ]; then
+        # Calculate total bins for the chromosome size file and set the default window size
+        totbins=$(awk -v var=$myres '{print $1"\t"($2/var)**2}' $sizefile | awk '{sum += $2} END {print sum}')
         newwindow=1
     else
-        newwindow=`echo "$window"`
-
-        # Calculating window sizes for the resolutions 
+        # Set the new window size
         newwindow=$(mawk -v win=$window -v res=$myres 'BEGIN{print int(win/(res/1000))+1}')
     fi
 
-    outiefull=`echo "Crush_""$myres"".bedgraph"`
-    outiefullPval=`echo "pvalues_""$myres"".bedgraph"`
-    Aoutiefull=`echo "ACrush_""$myres"".bedgraph"`
-    Boutiefull=`echo "BCrush_""$myres"".bedgraph"`
+    # Define output filenames based on resolution
+    outiefull="Crush_${myres}.bedgraph"
 
-    echo -e "\nNow dumping reads and calculating initial CRUSH for all chromosomes at ""$myres"
+    echo -e "\nNow dumping reads and calculating initial CRUSH for all chromosomes at $myres"
 
-    task(){
+    # Define a task function to process each chromosome
+    task() {
+        mychr=$(awk -v var=$myiter 'NR==var {print $1}' $sizefile)
+        mysize=$(awk -v var=$myiter 'NR==var {print $2}' $sizefile)
+        rowbins=$(awk -v myres=$myres -v var=$myiter 'NR==var {print int($2/myres)+1}' $sizefile)
+        
+        # Define temporary filenames
+        outie="Crush_${myres}_${mychr}_tmp"
+        outie2="Crush_${myres}_${mychr}_tmp2"
+        tmpfiles="ABtmpfiles_${mychr}_${myres}"
 
-    mychr=`cat $sizefile | head -n $myiter | tail -1 | cut -f 1`
-    mysize=`cat $sizefile | head -n $myiter | tail -1 | cut -f 2`
-    rowbins=`cat $sizefile | head -n $myiter | tail -1 | mawk -v myres=$myres '{print int($2/myres)+1}'`
-    outie=`echo "Crush_""$myres""_""$mychr""_tmp"`
-    pscores=`echo "ttest_""$myres""_""$mychr""_tmp"`
-    outie2=`echo "Crush_""$myres""_""$mychr""_tmp2"`
-    tmpfiles=`echo "ABtmpfiles_""$mychr""_""$myres"`
-    Aoutie=`echo "ACrush_""$myres""_""$mychr""_tmp"`
-    Boutie=`echo "BCrush_""$myres""_""$mychr""_tmp"`
+        # Create temporary directory if not exists
+        [ ! -d "$tmpfiles" ] && mkdir "$tmpfiles"
 
-    #Atmp=`echo "$tmpfiles""/Atmp"`
-    #Btmp=`echo "$tmpfiles""/Btmp"`
+        mydist=$((distance + 0))
+        myupper=$((upperlim + 0))
 
-    #Atmppseudo=`echo "$tmpfiles""/Atmpp_""$mychr""_""$myres"`
-    #Btmppseudo=`echo "$tmpfiles""/Btmpp_""$mychr""_""$myres"`
+        if [ "$verbose" -gt 0 ]; then
+            echo "Getting genic bins."
+        fi
+        
+        # Define more temporary filenames
+        sortedbed="${tmpfiles}/genebins"
+        pseudoB="${tmpfiles}/pseudoB"
+        fakiegenes="${tmpfiles}/fakiegenes"
+        dumped="${tmpfiles}/dumped_${myres}_${mychr}_tmp"
 
-    #Afile=`echo "tmpA"`
-    #Bfile=`echo "tmpB"`
-    #Bpfile=`echo "tmpBp"`
-    #Apfile=`echo "tmpAp"`
+        # Initialize states and bins
+        process_genes_Bbins $myres $mychr $genesblock $sortedbed $pseudoB
 
-    #A2file=`echo "tmpA2"`
-    #B2file=`echo "tmpB2"`
-    #Ap2file=`echo "tmpAp2"`
-    #Bp2file=`echo "tmpBp2"`
+        if [ "$verbose" -gt 0 ]; then
+            echo "Dumping ${mychr} chromosomal reads."
+        fi
 
-    [ ! -d "$tmpfiles" ] && mkdir "$tmpfiles"
+        # Define filenames for observed and expected reads
+        newofile="${tmpfiles}/observeds"
+        newefile="${tmpfiles}/expecteds"
+        dumperrors="dumperrors_${myres}"
 
-    efile=`echo "expecteds"`
-    ofile=`echo "observeds"`
-    mydist=$((distance + 0))
-    myupper=$((upperlim + 0))
+        # Use straw or cooler for dumping reads based on file format
+        if [ $juiceorcool -eq 0 ]; then
+            
+            # Dump reads using straw
+            run_dumper 'observed' $norm $hicpath $mychr $myres $dumped $dumperrors
+        else
 
-    if [ "$verbose" -gt 0 ]
-    then
-        echo "Getting genic bins."
+            echo "Dumping using cooler..."
 
+            # Dump reads using cooler
+            cooler dump $hicpath::/resolutions/$myres -r $mychr --join | cut -f 2,5,7 > $dumped 2> $dumperrors
+        fi
+
+        # Check for errors in dumped reads
+        chromcheck=$(grep -e KeyError -e name dumperrors_$myres | wc -l)
+        if [ $chromcheck -gt 0 ]; then
+            echo "WARNING: A chromosome in your size file was not found in the .mcool file. Make sure the names match up. For example, check for chr1 vs. 1."
+        fi
+
+        wait
+
+        # Filter reads based on upper limit if specified
+        if [ "$upperlim" -gt 0 ]; then
+            awk -v var=$myres -v distfilt=$mydist -v upper=$upperlim '{if (($2-$1 >= distfilt) && ($2-$1 <= upper)) print ($2-$1)/var"\t"$1"\t"$2"\t"$3}' $dumped | \
+            awk -v var=$myres -v mychrsize=$mysize -v newofile=$newofile -v newefile=$newefile '{b[$1]+=$4; print $0 >> newofile } END { for (i in b) print i"\t"b[i]/((mychrsize/var)-i) >> newefile }' &
+        else
+            awk -v var=$myres -v distfilt=$mydist '{if ($2-$1 >= distfilt) print ($2-$1)/var"\t"$1"\t"$2"\t"$3}' $dumped | \
+            awk -v var=$myres -v mychrsize=$mysize -v newofile=$newofile -v newefile=$newefile '{b[$1]+=$4; print $0 >> newofile } END { for (i in b) print i"\t"b[i]/((mychrsize/var)-i) >> newefile }' &
+        fi
+
+        wait 
+
+        if [ "$verbose" -gt 0 ]; then
+            echo "Done dumping."
+            echo "Now getting distance normalized values for ${mychr} chromosome."
+            start=$(date +%s)
+        fi
+
+        # Define filenames for error log, temporary mean, and symm file
+        errorfile="errorlog"
+        tmpmean="${tmpfiles}/tmpmean"
+        symmfile="${tmpfiles}/symmonfile"
+
+        # Calculate rows-Mean using expected and observed files
+        mawk 'NR==FNR { c1[$1] = $2; next} {if ($2 != $3) print $2"\t"$3"\t"($4+1)/(c1[$1]+1)}' $newefile $newofile | mawk -v thresh=$threshold '{if ($3 < thresh) print $1"\t"$2"\t"$3"\n"$2"\t"$1"\t"$3; else print $1"\t"$2"\t"thresh"\n"$2"\t"$1"\t"thresh}' | awk -v symmfile=$symmfile -v tmpmean=$tmpmean -v rowbins=$rowbins '{m[$1]+=$3;d[$1]+=($3**2); print $0 >> symmfile} END {for (i in m) print i"\t"m[i]/rowbins"\t"((d[i]/rowbins-((m[i]/rowbins)**2))**.5) >> tmpmean }'  2> $tmpfiles/$errorfile
+
+        wait
+
+        if [ "$verbose" -gt 0 ]; then
+            end=$(date +%s)
+            seconds=$(echo "$end - $start" | bc)
+            start=$(date +%s)
+        fi
+
+        # Check if there are enough bins overlapping with bed file
+        if [ "$myres" -gt 50000 ]; then
+            oppocheck=$(mawk 'NR==FNR { c1[$1] = $2; next} {if ($1 in c1) ; else if ($2 in c1); else print $0}' $sortedbed $symmfile | wc -l)
+        else
+            oppocheck=2
+        fi
+
+        # Perform real calculation
+        if [ "$oppocheck" -lt 1 ] && [ "$verbose" -gt 0 ]; then
+            echo "WARNING: All bins on chromosome ${mychr} overlap with your bed file at ${myres} resolution. This should not affect the scores if using multiple resolutions. If using a single resolution, then maybe not use this resolution?"
+        fi
+
+        if [ "$verbose" -gt 0 ]; then
+            end=$(date +%s)
+            seconds=$(echo "$end - $start" | bc)
+            start=$(date +%s)
+        fi
+
+        # Calculate Z-scores
+        RowZs=`echo "RowZs"`
+        mawk 'NR==FNR { m[$1] = $2; d[$1] = $3; next} {if (d[$2] > 0) print $1 "\t" $2 "\t" ($3 - m[$2]) / (d[$2])}' $tmpmean $symmfile > $tmpfiles/$RowZs
+
+        # Create a zero's file 
+        zfile="zerofile"
+        mawk -v var=$mychr '{if ($1 == var) print $0}' $sizefile | mawk -v wlkr=$myres '{for (i=0;i<=$2;i+=wlkr) print i"\t"i"\t0.1"}' > $tmpfiles/$zfile
+
+        # Run the process_oppocheck_statement function
+        process_oppocheck_statement $sortedbed $pseudoB $outie $mychr $myres "ABtmpfiles_${mychr}_${myres}" "ABtmpfiles_${mychr}_${myres}"
+
+    }
+
+    open_sem() {
+        mkfifo pipe-$$
+        exec 3<>pipe-$$
+        rm pipe-$$
+        local i=$1
+        for((;i>0;i--)); do
+            printf %s 000 >&3
+        done
+    }
+
+    run_with_lock() {
+        local x
+        read -u 3 -n 3 x && ((0==x)) || exit $x
+        (
+        ( "$@"; )
+        
+        printf '%.3d' $? >&3
+        )& spinner $!
+    }
+
+    open_sem $cpu 
+
+    if [ "$whichchoice" == "o" ]; then
+        for (( myiter=1; myiter<=$totchroms; myiter++ )); do
+            run_with_lock task $myiter
+        done
     fi
-    
-    sortedbed=`echo "$tmpfiles""/genebins"`
-    pseudoB=`echo "$tmpfiles""/pseudoB"`
-    dumped=`echo "$tmpfiles""/dumped_""$myres""_""$mychr""_tmp"`
 
-    #Generating Intializing states
-    #Adding in the code for re-initializing Bbins for next following resolutions
-    process_genes_Bbins $myres $mychr $genesblock $sortedbed $pseudoB 
+    wait
 
-    if [ "$verbose" -gt 0 ]
-    then
-        echo "Dumping ""$mychr"" chromosomal reads."
+    # Merging CRUSH files
+    echo "Resolution: $myres for Resolution output"
+    echo -ne "Merging individual chromosome files\033[0K\r"
+
+    cat Crush*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefull
+
+    wait 
+
+    #Setting up for shifter
+
+    if [ "$myres" == "$maxres" ]; then
+        coarse_infile=`echo "GI_""$myres"".bedgraph"`
+        cat $outiefull > $coarse_infile
+        wait
     fi
 
-        newofile=`echo "$tmpfiles""/observeds"`
-        newefile=`echo "$tmpfiles""/expecteds"`
-        errofile=`echo "errorlog"`
+    res_values=`echo "res_values"`
+    echo "$myres" >> $res_values
 
-    # Conditional argument for straw vs cooler usage
-    dumperrors=`echo "dumperrors_""$myres"`
-
-if [ $juiceorcool -eq 0 ]
-then
-
-# Dumping ofile and efile using no normalization schemes (Uncommented from previous version) using straw
-cat << EOF > dumper.py
-import hicstraw
-result = hicstraw.straw('observed', 'NONE', "$hicpath", "$mychr", "$mychr", "BP", int("$myres"))
-for i in range(len(result)):
-	print("{0}\t{1}\t{2}".format(result[i].binX, result[i].binY, result[i].counts)) 
-
-EOF
-
-python dumper.py | grep -v WARN > $dumped 2> $dumperrors
-
-else
-echo "Dumping using cooler..."
-
-# Dumping reads for cooler files
-cooler dump $hicpath::/resolutions/$myres -r $mychr --join | cut -f 2,5,7 > $dumped 2> $dumperrors
-
-fi
-
-chromcheck=`cat dumperrors_$myres | grep -e KeyError -e name | wc -l`
-
-if [ $chromcheck -gt 0 ]
-then
-echo "WARNING: A chromosome in your size file was not found in the .mcool file. Make sure the names match up. For example, check for chr1 vs. 1."
-fi
-
-wait
-
-if [ "$upperlim" -gt 0 ]
-then
-cat $dumped | awk -v var=$myres -v distfilt=$mydist -v upper=$upperlim '{if (($2-$1 > distfilt) && ($2-$1 <= upper)) print ($2-$1)/var"\t"$1"\t"$2"\t"$3}' | awk -v var=$myres -v mychrsize=$mysize -v newofile=$newofile -v newefile=$newefile '{b[$1]+=$4; print $0 >> newofile } END { for (i in b) print i"\t"b[i]/((mychrsize/var)-i) >> newefile } ' &
-else
-cat $dumped | awk -v var=$myres -v distfilt=$mydist '{if ($2-$1 > distfilt) print ($2-$1)/var"\t"$1"\t"$2"\t"$3}' | awk -v var=$myres -v mychrsize=$mysize -v newofile=$newofile -v newefile=$newefile '{b[$1]+=$4; print $0 >> newofile } END { for (i in b) print i"\t"b[i]/((mychrsize/var)-i) >> newefile } ' &
-fi
-
-wait 
-
-if [ "$verbose" -gt 0 ]
-then
-echo "Done dumping."
-fi
-
-if [ "$verbose" -gt 0 ]
-then
-echo "Now getting distance normalized values for ""$mychr"" chromosome."
-start=$(date +%s)
-fi
-
-
-errorfile=`echo "errorlog"`
-tmpmean=`echo "$tmpfiles""/tmpmean"`
-symmfile=`echo "$tmpfiles""/symmonfile"`
-#onfile=`echo "$tmpfiles""/distnorms"`
-
-# Calculating rows-Mean using expected and observed files
-mawk 'NR==FNR { c1[$1] = $2; next} {if ($2 != $3) print $2"\t"$3"\t"($4+1)/(c1[$1]+1)}' $newefile $newofile | mawk -v thresh=$threshold '{if ($3 < thresh) print $1"\t"$2"\t"$3"\n"$2"\t"$1"\t"$3; else print $1"\t"$2"\t"thresh"\n"$2"\t"$1"\t"thresh}' | awk -v symmfile=$symmfile -v tmpmean=$tmpmean -v rowbins=$rowbins '{m[$1]+=$3;d[$1]+=($3**2); print $0 >> symmfile} END {for (i in m) print i"\t"m[i]/rowbins"\t"((d[i]/rowbins-((m[i]/rowbins)**2))**.5) >> tmpmean }'  2> $tmpfiles/$errorfile
-
-wait
-
-#Generating on file to revive keep tracks. Can be commented if not needed
-#awk 'NR % 2 == 1' $symmfile > $onfile
-
-if [ "$verbose" -gt 0 ]
-then
-end=$(date +%s)
-seconds=$(echo "$end - $start" | bc)
-
-start=$(date +%s)
-fi
-
-if [ "$myres" -gt 50000 ]
-then
-oppocheck=`mawk 'NR==FNR { c1[$1] = $2; next} {if ($1 in c1) ; else if ($2 in c1); else print $0}' $sortedbed $symmfile | wc -l`
-else
-oppocheck=2
-fi
-
-# Perform real calculation
-if [ "$oppocheck" -lt 1 ] && [ "$verbose" -gt 0 ]
-then
-echo "WARNING: All bins on chromosome ""$mychr"" overlap with your bed file at ""$myres"" resolution"". This should not affect the scores if using multiple resolutions. If using a single resolution, then maybe not use this resolution?."
-fi
-
-
-if [ "$verbose" -gt 0 ]
-then
-end=$(date +%s)
-seconds=$(echo "$end - $start" | bc)
-start=$(date +%s)
-fi
-
-RowZs=`echo "RowZs"`
-myzscore=`echo "Zscorefile"`
-
-# Calculating Z-scores
-mawk 'NR==FNR { m[$1]=$2; d[$1]=$3; next} {if (d[$2] > 0) print $1"\t"$2"\t"($3-m[$2])/(d[$2])}' $tmpmean $symmfile > $tmpfiles/$RowZs
-
-#Creating a zero's file 
-zfile=`echo "zerofile"`
-cat $sizefile | mawk -v var=$mychr '{if ($1 == var) print $0}' | mawk -v wlkr=$myres '{for (i=0;i<=$2;i+=wlkr) print i"\t"i"\t0.1"}' > $tmpfiles/$zfile
-
-A2removedfile=`echo "A2removed"`
-B2removedfile=`echo "B2removed"`
-ttable=`echo "ttable"`
-ptable=`echo "ptable"`
-
-#Running the Process_oppocheck function
-process_oppocheck_statement $sortedbed $pseudoB $outie $pscores $mychr $myres "ABtmpfiles_${mychr}_${myres}" "ABtmpfiles_${mychr}_${myres}"
-
-}
-
-open_sem(){
-    mkfifo pipe-$$
-    exec 3<>pipe-$$
-    rm pipe-$$
-    local i=$1
-    for((;i>0;i--)); do
-        printf %s 000 >&3
-    done
-}
-
-run_with_lock(){
-    local x
-    read -u 3 -n 3 x && ((0==x)) || exit $x
-    (
-    ( "$@"; )
-    
-    printf '%.3d' $? >&3
-    )& spinner $!
-}
-
-open_sem $cpu 
-
-if [ "$whichchoice" == "o" ]
-then
-
-for (( myiter=1; myiter<=$totchroms; myiter++ ))
-do
-    run_with_lock task $myiter
-done
-
-wait
-
-# Merging CRUSH files
-
-#Adding this to check python output
-echo "Resolution: "$myres" for Resolution output"
-
-echo -ne "Merging individual chromosome files\033[0K\r"
-
-cat Crush*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefull
-
-cat ttest_*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefullPval
-
-wait 
-
-rm ttest_*_tmp
-
-wait
-
-#Setting up for shifter
-
-if [ "$myres" == "$maxres" ]
-then
-coarse_infile=`echo "GI_""$myres"".bedgraph"`
-cat $outiefull > $coarse_infile
-
-wait
-fi
-
-res_values=`echo "res_values"`
-echo "$myres" >> $res_values
-
-# Re-evaluating both A and B bins for re-initialization for next resolution
-
-# Re-evaluating both A and B bins for re-initialization for next resolution
+    # Re-evaluating both A and B bins for re-initialization for next resolution
     if [ "$countres" -gt 0 ]; then
         python_output="shifter.bedgraph"
 
@@ -1168,24 +1074,14 @@ echo "$myres" >> $res_values
         separating_ABbins $outiefull
     fi
 
-fi
+    wait
 
-if [ $keeptracks -eq 1 ] && [ "$whichchoice" == "o" ]
-then
-cat ACrush*_tmp | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $Aoutiefull &
-cat BCrush*_tmp | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $Boutiefull &
-fi
+    rm Crush*_tmp 2> smallerrors
+    rm ACrush*_tmp 2> smallerrors
+    rm BCrush*_tmp 2> smallerrors
 
-wait
-
-rm Crush*_tmp 2> smallerrors
-rm ACrush*_tmp 2> smallerrors
-rm BCrush*_tmp 2> smallerrors
-
-countres=$((countres+1))
-
+    countres=$((countres+1))
 }
-
 
 reprocess_resolutions_with_shifter() {
     local current_res=$1
@@ -1215,10 +1111,7 @@ reprocess_resolutions_with_shifter() {
             local sortedbed_reprocess="genebins_reprocess_${mychr}_${prev_res}"
             local pseudoB_reprocess="pseudoB_reprocess_${mychr}_${prev_res}"
             local outie_reprocess="Crush_reprocess_${prev_res}_${mychr}_tmp"
-            local pscores_reprocess="ttest_reprocess_${prev_res}_${mychr}_tmp"
-            local Aoutie_reprocess="ACrush_reprocess_${prev_res}_${mychr}_tmp"
-            local Boutie_reprocess="BCrush_reprocess_${prev_res}_${mychr}_tmp"
-
+            
             reprocesstmpfiles=`echo "ABreprocesstmpfiles_""$mychr""_""$prev_res"`
 
             #Creating tmp directory
@@ -1235,26 +1128,34 @@ reprocess_resolutions_with_shifter() {
             echo "Files: $sortedbed_reprocess, $pseudoB_reprocess"
 
             # Assuming the existence of process_oppocheck_statement function with correct parameters
-            process_oppocheck_statement $sortedbed_reprocess $pseudoB_reprocess $outie_reprocess $pscores_reprocess $mychr $prev_res "ABtmpfiles_${mychr}_${prev_res}" "ABreprocesstmpfiles_${mychr}_${prev_res}"
+            process_oppocheck_statement $sortedbed_reprocess $pseudoB_reprocess $outie_reprocess $mychr $prev_res "ABtmpfiles_${mychr}_${prev_res}" "ABreprocesstmpfiles_${mychr}_${prev_res}"
 
             wait 
+
+            if [ $prev_res -eq $minres ] && [ $pcalculation -gt 0 ]; then
+                
+                pscores_reprocess="ttest_reprocess_${prev_res}_${mychr}_tmp"
+                calculate_pvalues "ABreprocesstmpfiles_${mychr}_${prev_res}" $mychr $prev_res $pscores_reprocess
+            
+            fi            
         done    
 
-        # Merging CRUSH files
-
+        # Merge the reprocessed CRUSH files
         echo -ne "Merging individual chromosome files\033[0K\r"
         cat Crush_reprocess*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefull_reprocess
 
-        #Adding this to check python output
-        echo "Resolution: "$prev_res" for Resolution output"
+        if [ $prev_res -eq $minres ] && [ $pcalculation -gt 0 ]; then
+        
+            outiefullPval_reprocess="pvalues_reprocess_${prev_res}.bedgraph"
+            echo "Resolution: $prev_res for Resolution output and minres is : $minres"
 
-        cat ttest_*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefullPval_reprocess
+            cat ttest_reprocess*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefullPval_reprocess
+        
+            wait 
+        fi
 
-        #Adding this to check python output
-        echo "Resolution: "$prev_res" for Resolution p-val output"
 
-        wait 
-
+        # Set the coarse input file if processing the maximum resolution
         if [ "$prev_res" == "$maxres" ]; then
 
             coarse_infile_reprocess=`echo "GI_reprocess_""$prev_res"".bedgraph"`
@@ -1313,8 +1214,9 @@ mkdir $crushdir
 cd $crushdir
 
 # Reading Resolutions
-if [ $juiceorcool -eq 0 ]; then
-    cat << EOF > listres.py
+if [ $juiceorcool -eq 0 ]
+then
+cat << EOF > listres.py
 import hicstraw
 hic = hicstraw.HiCFile("$hicpath")
 totres=hic.getResolutions()
@@ -1329,12 +1231,10 @@ EOF
 res=`python listres.py`
 
 else
-
 reslist=`cooler ls $hicpath | sed 's/\//\t/g' | awk -v var=$res -v cres=$coarsestres '{if (($NF >= var) && ($NF <= cres)) print $NF}' | sort -k 1bnr,1b --stable | awk '{if (NR == 1) printf "%s", $1; else printf ",%s", $1}' | awk '{print $0}'`
-
 res=$reslist
-
 fi
+
 
 # Check for fasta
 isfasta=`head -1 $fastafile | awk '{if ($1 ~ /^>/) print 1; else print 0}'`
@@ -1345,19 +1245,21 @@ echo "sizes-file: $sizefile"
 
 # Check sizefile
 numcolumns=`mawk '{if (NF != 2) print $0}' $sizefile | wc -l`
-if [ "$numcolumns" -gt 0 ]; then
-    echo "size file is incorrect format. It should be two columns with chromosome name and size"
-    exit 0
+if [ "$numcolumns" -gt 0 ]
+then
+echo "size file is incorrect format. It should be two columns with chromosome name and size"
+exit 0
 fi
 
 totchroms=`cat $sizefile | wc -l`
 maxres=`echo "$res" | sed "s/,/ /g" | mawk '{max=$1;for(i=2;i<=NF;i++){if($i > max) max = $i} print max}'`
 minres=`echo "$res" | sed "s/,/ /g" | mawk '{min=$1;for(i=2;i<=NF;i++){if($i < min) min = $i} print min}'`
 
-if [ $isfasta == "1" ]; then
-    echo "Fasta-file: $fastafile"
+if [ $isfasta == "1" ]
+then
+echo "Fasta-file: $fastafile"
 else
-    echo "initial-B: $fastafile"
+echo "initial-B: $fastafile"
 fi
 
 resbins=`echo "size_bins"".bed"`
@@ -1365,45 +1267,52 @@ gcfile=`echo "gc_bins"".txt"`
 gc_g_ga=`echo "gc_g_ga_bins"".bed"`
 Bbins=`echo "Bbins"".bed"`
 
-if [ $minres -ge 500 ]; then
-    cat $sizefile | awk -v myres=500 '{for (i=0;i<=$2;i+=myres) print $1"\t"i"\t"i+myres}' > $resbins
-    echo "$resbins calculated at 500bp resolution"
+if [ $minres -ge 500 ]
+then
+cat $sizefile | awk -v myres=500 '{for (i=0;i<=$2;i+=myres) print $1"\t"i"\t"i+myres}' > $resbins
+echo "$resbins calculated at 500bp resolution"
+
 else
-    cat $sizefile | awk -v myres=$minres '{for (i=0;i<=$2;i+=myres) print $1"\t"i"\t"i+myres}' > $resbins
-    echo "$resbins calculated at ""$minres"" resolution"
+
+cat $sizefile | awk -v myres=$minres '{for (i=0;i<=$2;i+=myres) print $1"\t"i"\t"i+myres}' > $resbins
+echo "$resbins calculated at ""$minres"" resolution"
 fi
 
 wait
 
-if [ $isfasta == "1" ]; then
-    echo "Now, calculating the gc content:"
-    bedtools nuc -fi $fastafile -bed $resbins > $gcfile
-    wait
+if [ $isfasta == "1" ]
+then
+echo "Now, calculating the gc content:"
+bedtools nuc -fi $fastafile -bed $resbins > $gcfile
+wait
 
-    # Created a %G/%G+%A file in 7th column
-    cat $gcfile | grep -v user | cut -f 1-5 | awk '{print $0"\t"($4+$5)}' | awk '{if ($6 > 0) print $0}' | awk '{print $0"\t"($5/$6)}' > $gc_g_ga
-    wait
+# Created a %G/%G+%A file in 7th column
+cat $gcfile | grep -v user | cut -f 1-5 | awk '{print $0"\t"($4+$5)}' | awk '{if ($6 > 0) print $0}' | awk '{print $0"\t"($5/$6)}' > $gc_g_ga
+wait
 
-    # Calculating mean and SD for the whole genome and then subtracting 2SD from the mean
-    gc_thresh=`cat $gc_g_ga | awk '{s+=$7; ss+=$7*$7; linecount+=1} END{print m=s/linecount, sqrt(ss/linecount-m^2)}' | awk '{print $0}' | awk '{print $1 - 1*$2}'`
+# Calculating mean and SD for the whole genome and then subtracting 2SD from the mean
+gc_thresh=`cat $gc_g_ga | awk '{s+=$7; ss+=$7*$7; linecount+=1} END{print m=s/linecount, sqrt(ss/linecount-m^2)}' | awk '{print $0}' | awk '{print $1 - 1*$2}'`
 
-    if [ $verbose -gt 0 ]; then
-        echo "gc threshold is ""$gc_thresh"
-    fi
+if [ $verbose -gt 0 ]
+then
+echo "gc threshold is ""$gc_thresh"
+fi
 
-    # Generating the bins by considering the bins below
-    cat $gc_g_ga | awk -v thresh=$gc_thresh '{if ($7 < thresh) print $0}' > $Bbins
-    wait
-    echo "Finished generating Bbins file for all chromosomes "
+# Generating the bins by considering the bins below
+cat $gc_g_ga | awk -v thresh=$gc_thresh '{if ($7 < thresh) print $0}' > $Bbins
+wait
+echo "Finished generating Bbins file for all chromosomes "
+
 else
-    cat $fastafile > $Bbins
+cat $fastafile > $Bbins
 fi
 
-if [ $endZ == 0 ]; then
-    endZ=`echo "$minres"`
+if [ $endZ == 0 ]
+then
+endZ=`echo "$minres"`
 fi
 
-# Eigenvector Block 
+# Here is where I am running Eigen Block after reslist
 
 EVAstates="EVAstates.bed"
 EVBstates="EVBstates.bed"
@@ -1488,62 +1397,57 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
         #Final Processing of bedgraphs
 
         finaloutie=`echo "$outpre""mergedCrush_""$myres"".bedgraph"`
+        finalpoutie=`echo "$outpre""mergedqvalue_""$myres"".bedgraph"`
+
         Crush_todelete=`echo "Crush_todelete_""$myres""_reprocess"`
-        
+        pval_todelete=`echo "pval_todelete_""$myres""_reprocess"`
+
         cat Crush_reprocess*.bedgraph | mawk -v minr=$myres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4/int($3-$2)}' | mawk -v mr=$myres '{for (i=$2;i<$3;i++) print $1":"int(i)*mr":"(int(i)+1)*mr"\t"$4}' | mawk '{c1[$1] += $2; c2[$1]++} END {for (i in c1) print i"\t"c1[i]/c2[i]}' | sed 's/:/\t/g' > $finaloutie 2> smallerrors
+        cat pvalues_reprocess*.bedgraph | mawk -v minr=$myres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4}' | mawk -v mr=$myres '{for (i=$2;i<$3;i++) print $1":"int(i)*mr":"(int(i)+1)*mr"\t"$4}' | awk '{c1[$1] += log($2)/log(10); c2[$1]++} END {for (i in c1) print i"\t"10**(c1[i]/c2[i])}' | sed 's/:/\t/g' | sort -k 1,1 -V -k 2bn,2b --stable > $finalpoutie 2> smallerrors
 
-        #p-value calculation for the minimum requirement
-        if [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then
-            finalpoutie=`echo "$outpre""mergedqvalue_""$myres"".bedgraph"`
-            cat pvalues_Re*.bedgraph | mawk -v minr=$myres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4}' | mawk -v mr=$myres '{for (i=$2;i<$3;i++) print $1":"int(i)*mr":"(int(i)+1)*mr"\t"$4}' | awk '{c1[$1] += log($2)/log(10); c2[$1]++} END {for (i in c1) print i"\t"10**(c1[i]/c2[i])}' | sed 's/:/\t/g' | sort -k 1,1 -V -k 2bn,2b --stable > $finalpoutie 2> smallerrors
+        echo "Running BH correction"
+        BHcorrection $finaloutie
+        wait
+        mv bhcorrected $finalpoutie
+        wait
 
-            echo "Running BH correction"
-            BHcorrection $finaloutie
-            wait
-            mv bhcorrected $finalpoutie
-            wait
+        GIave=`cat $finaloutie | mawk '{if ($4 < 0) sum+=($4*-1); else sum+=($4)} END {print sum/NR}' `
 
-            GIave=`cat $finaloutie | mawk '{if ($4 < 0) sum+=($4*-1); else sum+=($4)} END {print sum/NR}' `
+        if [ $(bc <<< "$qthresh > 0") -eq 1 ]
+        then
 
-            if [ $(bc <<< "$qthresh > 0") -eq 1 ]; then
+        finaloutiefilt=`echo "$outpre""mergedCrush_""$myres""_qfiltered_reprocess.bedgraph"`
+        filt_todelete=`echo "tmpcrushfiltered_""$myres""_reprocess"`
 
-                finaloutiefilt=`echo "$outpre""mergedCrush_""$myres""_qfiltered_reprocess.bedgraph"`
-                filt_todelete=`echo "tmpcrushfiltered_""$myres""_reprocess"`
+        mawk -v fdr=$qthresh -v var=$GIave 'NR==FNR {a[$1":"$2":"$3] = $4; next} {if (a[$1":"$2":"$3] <= fdr) print $1"\t"$2"\t"$3"\t"$4/(var/100)}'  $finalpoutie $finaloutie> $finaloutiefilt
 
-                mawk -v fdr=$qthresh -v var=$GIave 'NR==FNR {a[$1":"$2":"$3] = $4; next} {if (a[$1":"$2":"$3] <= fdr) print $1"\t"$2"\t"$3"\t"$4/(var/100)}'  $finalpoutie $finaloutie> $finaloutiefilt
-
-            fi
         fi
 
-        if [ $trackline -eq 0 ]; then
-            cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' > $Crush_todelete
+        if [ $trackline -eq 0 ]
+        then
 
-            if [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then 
-                pval_todelete=`echo "pval_todelete_""$myres""_Re"`
-                cat $finalpoutie | mawk '{print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
-                wait
-            fi
+        cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' > $Crush_todelete
+        cat $finalpoutie | mawk '{print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
+
         else
 
-            cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$0; else print $0}' > $Crush_todelete
-            if [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then 
-                pval_todelete=`echo "pval_todelete_""$myres""_Re"`
-                cat $finalpoutie | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$1"\t"$2"\t"$3"\t"$4; else print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
-                wait
-
-            fi    
+        cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$0; else print $0}' > $Crush_todelete
+        cat $finalpoutie | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$1"\t"$2"\t"$3"\t"$4; else print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
+        wait
         fi
 
-        # Apply BH correlation and filter if necessary
-        if [ $trackline -gt 0 ] && [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then
+        if [ $trackline -gt 0 ] && [ $(bc <<< "$qthresh > 0") -eq 1 ]
+        then
 
-            cat $finaloutiefilt | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20,20 autoScale off\n"$0; else print $0}' > $filt_todelete
-            wait
+        cat $finaloutiefilt | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20,20 autoScale off\n"$0; else print $0}' > $filt_todelete
+        wait
 
-            mv $filt_todelete $finaloutiefilt
-            mv $Crush_todelete $finaloutie
-            mv $pval_todelete $finalpoutie
-            wait
+        mv $filt_todelete $finaloutiefilt
+        mv $Crush_todelete $finaloutie
+        mv $pval_todelete $finalpoutie
+
+        wait
+
         fi
 
         ## Refixing the extra bins
@@ -1556,27 +1460,30 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
         cat $finaloutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $finaloutie2
         mv $finaloutie2 $finaloutie
 
-        if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then
-            cat $finaloutiefilt | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $filt_todelete
-            wait
-            mv $filt_todelete $finaloutiefilt
-            mv $finalpoutie ../
+        if [ $(bc <<< "$qthresh > 0") -eq 1 ]
+        then
+
+        cat $finaloutiefilt | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $filt_todelete
+        wait
+        mv $filt_todelete $finaloutiefilt
         fi
 
         mv $finaloutie ../
+        mv $finalpoutie ../
 
+        if [ $(bc <<< "$qthresh > 0") -eq 1 ]
+        then
 
-        if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then
-            mv $finaloutiefilt ../
+        mv $finaloutiefilt ../
         fi
+
     fi
 done
 
 
-if [ $doNotMerge -eq 1 ]
-then
-echo "Finished with each resolution listed, but not merging...."
-exit 0
+if [ $doNotMerge -eq 1 ]; then
+    echo "Finished with each resolution listed, but not merging...."
+    exit 0
 fi
 
 countres=0
@@ -1611,6 +1518,7 @@ if [ "$cleanup" -gt 0 ]; then
     rm -r $crushdir
 fi
 
+# Final Shifter
 if [ "$reshift" -gt 0 ]; then
 
     echo "Going into Final Shifter"
@@ -1650,6 +1558,4 @@ fi
 
 echo "Finished! Check the output."
 echo -e "Note: Please keep in mind that we are using resolution walking.\nIf the coarsest resolution doesn't match the compartment pattern at that resolution, please consider re-running with the -m parameter set to start the walking with smaller bins."
-
-##########################################
 
