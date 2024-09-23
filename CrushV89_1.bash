@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #CRUSH Script Version
-version=1.0 #A version where EigenVector approach is considered for initialization states and recursive iteration of resolutions is implemented.
+version=1.0 # A version where EigenVector approach is considered for initialization states and recursive iteration of resolutions is implemented.
 
 #Initial variables
 hicpath=0
@@ -83,7 +83,7 @@ function spinner() {
 
 # Display usage
 function usage {
-    echo -e "\n\nusage : crush -i HIC  -g SIZEFILE -a ABED -b BBED | FASTA -r FINERESOLUTION [-e EIGENVECTORBED] [-cpu CPU] [-w WINDOW] [-h]"
+    echo -e "\n\nusage : crush -i HIC -g SIZEFILE -a ABED -b BBED | FASTA -r FINERESOLUTION [-e EIGENVECTORBED] [-cpu CPU] [-w WINDOW] [-h]"
     echo -e "Use option -h|--help for more information"
 }
 
@@ -103,8 +103,8 @@ function help {
     echo "-g|--genomesize          :  Specify path to a chromosome size file with two columns corresponding to chromosome and size respectively."
     echo "-a|--initialA            :  Specify path to a bed file with the regions for initializing A. For example, gene annotations e.g. hg19genes.bed."
     echo "-b|--initialB            :  Specify path to either a fasta file or to a bed file for initializing B. If you specify a fasta file, we will calculate intialB from gc content." 
-    echo "-e|--eigenfile           :  Specify path to an eigenfile to initialize A and B states. If you don't specify a file, CRUSH will calculate EigenVectors by default and pick the best PC possible." 
     echo "-r|--res                 :  Resolution desired."
+    echo "-e|--eigenfile           :  Specify path to an eigenfile to initialize A and B states. If you don't specify a file, CRUSH will calculate EigenVectors by default and pick the best PC possible." 
     echo "---------------" 
 
     echo " "
@@ -721,8 +721,8 @@ run_shifter() {
     awk -v var="$coarser_res" '
         {
             for (i=0; i<=$2; i+=var) {          # Loop from 0 to the size of the chromosome in steps of "var"
-                start = i              # Calculate the start of the interval (2 bins to the left)
-                end = i+(var)               # Calculate the end of the interval (3 bins to the right)
+                start = i                       # Calculate the start of the interval (2 bins to the left)
+                end = i+(var)                   # Calculate the end of the interval (3 bins to the right)
                 if (start < 0) start = 0        # Ensure the start is not negative
                 if (end > $2) end = $2          # Ensure the end does not exceed the chromosome length
                 print $1 "\t" start "\t" end    # Print the chromosome name, start, and end of the interval
@@ -1147,7 +1147,6 @@ reprocess_resolutions_with_shifter() {
         echo "$j"
 
         if [ "$j" -gt 0 ]; then
-            python_output_reprocess_copy="shifter_reprocess_Copy_${prev_res}.bedgraph"
 
             highres_infile_reprocess=$outiefull_reprocess
             coarse_res_infile_reprocess=$coarse_infile_reprocess
@@ -1183,16 +1182,15 @@ reprocess_resolutions_with_shifter() {
 
 
 #The show unfolds from here:
-
 # Creating a directory for temporary file
 echo "Creating and moving into temporary directory"
 mkdir $crushdir
 cd $crushdir
 
 # Reading Resolutions
-if [ $juiceorcool -eq 0 ]
-then
-cat << EOF > listres.py
+if [ $juiceorcool -eq 0 ]; then 
+
+    cat << EOF > listres.py
 import hicstraw
 hic = hicstraw.HiCFile("$hicpath")
 totres=hic.getResolutions()
@@ -1207,8 +1205,8 @@ EOF
 res=`python listres.py`
 
 else
-reslist=`cooler ls $hicpath | sed 's/\//\t/g' | awk -v var=$res -v cres=$coarsestres '{if (($NF >= var) && ($NF <= cres)) print $NF}' | sort -k 1bnr,1b --stable | awk '{if (NR == 1) printf "%s", $1; else printf ",%s", $1}' | awk '{print $0}'`
-res=$reslist
+    reslist=`cooler ls $hicpath | sed 's/\//\t/g' | awk -v var=$res -v cres=$coarsestres '{if (($NF >= var) && ($NF <= cres)) print $NF}' | sort -k 1bnr,1b --stable | awk '{if (NR == 1) printf "%s", $1; else printf ",%s", $1}' | awk '{print $0}'`
+    res=$reslist
 fi
 
 
@@ -1277,9 +1275,8 @@ else
     cat $fastafile > $Bbins
 fi
 
-if [ $endZ == 0 ]
-then
-endZ=`echo "$minres"`
+if [ $endZ == 0 ]; then
+    endZ=`echo "$minres"`
 fi
 
 # Here is where I am running Eigen Block after reslist
