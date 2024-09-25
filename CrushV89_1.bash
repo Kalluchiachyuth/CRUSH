@@ -1541,20 +1541,20 @@ if [ "$reshift" -gt 0 ]; then
 
         fi
     
-    ## Refixing the extra bins (inside the loop for each resolution)
-    #sizeBed=`echo "Chrsizes.bed"`
-    finaloutie2=`echo "mergedCrush3_""$myres"".bedgraph"`
+        ## Refixing the extra bins (inside the loop for each resolution)
+        #sizeBed=`echo "Chrsizes.bed"`
+        finaloutie2=`echo "mergedCrush3_""$myres"".bedgraph"`
 
-    #cat $sizefile | awk '{print $1"\t""1""\t"$2}' > $sizeBed
+        #cat $sizefile | awk '{print $1"\t""1""\t"$2}' > $sizeBed
 
-    cat $newoutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' > $finaloutie2
-    mv $finaloutie2 $newoutie
+        cat $newoutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' > $finaloutie2
+        mv $finaloutie2 $newoutie
 
-    done
-    #rm mergedCrush2_*.bedgraph
-    #rm $finalshifter
-    #rm tmp2_shiftedleft
-    #rm tmp1_shiftedright
+        done
+        #rm mergedCrush2_*.bedgraph
+        #rm $finalshifter
+        #rm tmp2_shiftedleft
+        #rm tmp1_shiftedright
 fi
 
 echo "Finished! Check the output."
