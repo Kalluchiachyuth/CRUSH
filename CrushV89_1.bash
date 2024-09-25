@@ -1408,53 +1408,48 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
 
         GIave=`cat $finaloutie | mawk '{if ($4 < 0) sum+=($4*-1); else sum+=($4)} END {print sum/NR}' `
 
-        if [ $(bc <<< "$qthresh > 0") -eq 1 ]
-        then
+        if [ $(bc <<< "$qthresh > 0") -eq 1 ]; then
+            finaloutiefilt=`echo "$outpre""mergedCrush_""$myres""_qfiltered_reprocess.bedgraph"`
+            filt_todelete=`echo "tmpcrushfiltered_""$myres""_reprocess"`
 
-        finaloutiefilt=`echo "$outpre""mergedCrush_""$myres""_qfiltered_reprocess.bedgraph"`
-        filt_todelete=`echo "tmpcrushfiltered_""$myres""_reprocess"`
-
-        mawk -v fdr=$qthresh -v var=$GIave 'NR==FNR {a[$1":"$2":"$3] = $4; next} {if (a[$1":"$2":"$3] <= fdr) print $1"\t"$2"\t"$3"\t"$4/(var/100)}'  $finalpoutie $finaloutie> $finaloutiefilt
+            mawk -v fdr=$qthresh -v var=$GIave 'NR==FNR {a[$1":"$2":"$3] = $4; next} {if (a[$1":"$2":"$3] <= fdr) print $1"\t"$2"\t"$3"\t"$4/(var/100)}'  $finalpoutie $finaloutie> $finaloutiefilt
 
         fi
 
-        if [ $trackline -eq 0 ]
-        then
-
-        cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' > $Crush_todelete
-        cat $finalpoutie | mawk '{print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
+        if [ $trackline -eq 0 ]; then
+            cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' > $Crush_todelete
+            cat $finalpoutie | mawk '{print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
 
         else
 
-        cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$0; else print $0}' > $Crush_todelete
-        cat $finalpoutie | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$1"\t"$2"\t"$3"\t"$4; else print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
-        wait
+            cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$0; else print $0}' > $Crush_todelete
+            cat $finalpoutie | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$1"\t"$2"\t"$3"\t"$4; else print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
+            wait
         fi
 
-        if [ $trackline -gt 0 ] && [ $(bc <<< "$qthresh > 0") -eq 1 ]
-        then
+        if [ $trackline -gt 0 ] && [ $(bc <<< "$qthresh > 0") -eq 1 ]; then
+            cat $finaloutiefilt | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20,20 autoScale off\n"$0; else print $0}' > $filt_todelete
+            wait
 
-        cat $finaloutiefilt | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20,20 autoScale off\n"$0; else print $0}' > $filt_todelete
-        wait
+            mv $filt_todelete $finaloutiefilt
+            mv $Crush_todelete $finaloutie
+            mv $pval_todelete $finalpoutie
 
-        mv $filt_todelete $finaloutiefilt
-        mv $Crush_todelete $finaloutie
-        mv $pval_todelete $finalpoutie
-
-        wait
+            wait
 
         fi
 
         ## Refixing the extra bins
         # Creating a size bed file
         sizeBed=`echo "Chrsizes.bed"`
-        finaloutie2=`echo "mergedCrush2_""$myres"".bedgraph"`
+        #finaloutie2=`echo "mergedCrush2_""$myres"".bedgraph"`
 
         cat $sizefile | awk '{print $1"\t""1""\t"$2}' > $sizeBed
 
-        cat $finaloutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $finaloutie2
-        mv $finaloutie2 $finaloutie
+        #cat $finaloutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $finaloutie2
+        #mv $finaloutie2 $finaloutie
 
+        #Calculating the qthreshold values
         if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then 
             cat $finaloutiefilt | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $filt_todelete
             wait
@@ -1462,7 +1457,7 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
             mv $finalpoutie ../
         fi
 
-        mv $finaloutie ../
+        #mv $finaloutie ../
 
         if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then
             mv $finaloutiefilt ../
@@ -1541,10 +1536,19 @@ if [ "$reshift" -gt 0 ]; then
 
             wait
 
-            mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}' $newoutie > $newinnie    
+            mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' $newoutie > $newinnie    
             wait
 
         fi
+    
+    ## Refixing the extra bins (inside the loop for each resolution)
+    #sizeBed=`echo "Chrsizes.bed"`
+    finaloutie2=`echo "mergedCrush3_""$myres"".bedgraph"`
+
+    #cat $sizefile | awk '{print $1"\t""1""\t"$2}' > $sizeBed
+
+    cat $newoutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' > $finaloutie2
+    mv $finaloutie2 $newoutie
 
     done
     #rm mergedCrush2_*.bedgraph
