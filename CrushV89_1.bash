@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #CRUSH Script Version
-version=1.0 # A version where EigenVector approach is considered for initialization states and recursive iteration of resolutions is implemented.
+version=1.0 #A version where EigenVector approach is considered for initialization states and recursive iteration of resolutions is implemented.
 
 #Initial variables
 hicpath=0
@@ -83,7 +83,7 @@ function spinner() {
 
 # Display usage
 function usage {
-    echo -e "\n\nusage : crush -i HIC -g SIZEFILE -a ABED -b BBED | FASTA -r FINERESOLUTION [-e EIGENVECTORBED] [-cpu CPU] [-w WINDOW] [-h]"
+    echo -e "\n\nusage : crush -i HIC  -g SIZEFILE -a ABED -b BBED | FASTA -r FINERESOLUTION [-e EIGENVECTORBED] [-cpu CPU] [-w WINDOW] [-h]"
     echo -e "Use option -h|--help for more information"
 }
 
@@ -103,8 +103,8 @@ function help {
     echo "-g|--genomesize          :  Specify path to a chromosome size file with two columns corresponding to chromosome and size respectively."
     echo "-a|--initialA            :  Specify path to a bed file with the regions for initializing A. For example, gene annotations e.g. hg19genes.bed."
     echo "-b|--initialB            :  Specify path to either a fasta file or to a bed file for initializing B. If you specify a fasta file, we will calculate intialB from gc content." 
-    echo "-r|--res                 :  Resolution desired."
     echo "-e|--eigenfile           :  Specify path to an eigenfile to initialize A and B states. If you don't specify a file, CRUSH will calculate EigenVectors by default and pick the best PC possible." 
+    echo "-r|--res                 :  Resolution desired."
     echo "---------------" 
 
     echo " "
@@ -318,7 +318,7 @@ process_genes_Bbins() {
 
         # Processing the genes & Bbins files 
         cat $EVAstates | mawk -v myres=$maxres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$maxres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
-
+        
         # Bbins
         cat $EVBstates |  mawk -v myres=$maxres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$maxres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $pseudoB
 
@@ -669,7 +669,7 @@ process_oppocheck_statement() {
         start=$(date +%s)
     fi
 
-    # Generating the output
+    # Calculate the output
     mawk -v var="$res" -v myABsum="$myABsum" '{ if ($1 in b) b[$1] -= $2; else b[$1] = $2 } END { for (i in b) { if (b[i] != 0) print i "\t" (b[i])/myABsum } }' "${output_dir}/A2removedfile" "${output_dir}/B2removedfile" | sort -k 1bn,1b --stable | mawk -v mchr="$chr" -v myres="$res" -v OFS="\t" '{ print mchr, int($1), $2; count++ }' | mawk -v myres="$res" '{ print $1 "\t" $2-int(myres/2)+myres "\t" $2+(int(myres/2))+myres "\t" $3 }' | mawk '{ if ($2 > 0) print $0 }' > "$outie_oppo" 2> "${output_dir}/errorfile"
 
     # Process exclusion regions if exclbed file is provided
@@ -693,6 +693,17 @@ process_oppocheck_statement() {
     # Adjust compartmental values if needed
     if [[ "$oppocheck" -gt 0 && "$adjustment" -gt 0 ]]; then
 
+    #    amed=`mawk 'NR==FNR { c1[$1] = $2; next} {if ($2 in c1) print $4}' $innie_genes $outie_oppo | mawk '{sum +=$1} END {print sum/NR}'`
+    #    bmed=`mawk 'NR==FNR { c1[$1] = $2; next} {if ($2 in c1); else print $4}' $innie_genes $outie_oppo | mawk '{sum += $1} END {print sum/NR}'`
+
+    #    wait
+
+    #    cat $outie_oppo | mawk -v varA=$amed -v varB=$bmed '{print $1"\t"$2"\t"$3"\t"$4-(varA-(varB*-1))}' > $outie2
+
+    #    wait
+
+    #    mv $outie2 $outie_oppo
+
         amed=`awk '{if ($4 > 0) print $4}' |  awk '{if (NR == 1) geom=$1; else geom=($1*geom)} END {print geom**(1/NR)}'`
         bmed=`awk '{if ($4 < 0) print $4*-1}' |  awk '{if (NR == 1) geom=$1; else geom=($1*geom)} END {print geom**(1/NR)}'`
 
@@ -704,6 +715,17 @@ process_oppocheck_statement() {
         mv "$outie2" "$outie_oppo"
     fi
 
+    #if [ "$myres" -ge "$endZ" ]; then
+
+    #    myendmean=`cat $outie_oppo | mawk '{sum += $4; cnum++} END {print sum/cnum}'`
+    #    echo "$myendmean"
+    #    tmpendZ="${output_dir}/tmpendnorm"
+    #    cat $outie_oppo | mawk -v mymean=$myendmean '{print $1"\t"$2"\t"$3"\t"($4-mymean)}' > $tmpendZ
+    
+    #    wait
+
+    #    mv $tmpendZ $outie_oppo
+    #fi
 }
 
 # Shifter function
@@ -721,8 +743,8 @@ run_shifter() {
     awk -v var="$coarser_res" '
         {
             for (i=0; i<=$2; i+=var) {          # Loop from 0 to the size of the chromosome in steps of "var"
-                start = i                       # Calculate the start of the interval (2 bins to the left)
-                end = i+(var)                   # Calculate the end of the interval (3 bins to the right)
+                start = i              # Calculate the start of the interval (2 bins to the left)
+                end = i+(var)               # Calculate the end of the interval (3 bins to the right)
                 if (start < 0) start = 0        # Ensure the start is not negative
                 if (end > $2) end = $2          # Ensure the end does not exceed the chromosome length
                 print $1 "\t" start "\t" end    # Print the chromosome name, start, and end of the interval
@@ -733,7 +755,7 @@ run_shifter() {
     # Main pipeline (1. Intersect with high_innie and calculate mean 2. Intersect with coarse_innie and calculate first difference 3. Intersect with high_innie again and calculate final difference)
     intersectBed -wa -a temp_intervals.bed -wb -b $high_innie | groupBy -i stdin -g 1,2,3 -c 7 -o mean | intersectBed -wa -a $coarse_innie -wb -b stdin | awk '{print $1"\t"$2"\t"$3"\t"$8-$4}' | intersectBed -wa -a $high_innie -wb -b stdin | groupBy -i stdin -g 1,2,3,4 -c 8 -o mean | awk '{print $1"\t"$2"\t"$3"\t"$4-$5}' > $shifter_outie
 
-    # Cleanup
+    #Cleanup
     rm temp_intervals.bed
 
     echo "Shifter executed and output written to $shifter_outie"
@@ -1129,7 +1151,7 @@ reprocess_resolutions_with_shifter() {
         
             outiefullPval_reprocess="pvalues_reprocess_${prev_res}.bedgraph"
             echo "Resolution: $prev_res for Resolution output and minres is : $minres"
-            cat ttest_reprocess_${prev_res}_*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefullPval_reprocess
+            cat ttest_reprocess*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefullPval_reprocess
             wait 
         fi
 
@@ -1147,6 +1169,7 @@ reprocess_resolutions_with_shifter() {
         echo "$j"
 
         if [ "$j" -gt 0 ]; then
+            python_output_reprocess_copy="shifter_reprocess_Copy_${prev_res}.bedgraph"
 
             highres_infile_reprocess=$outiefull_reprocess
             coarse_res_infile_reprocess=$coarse_infile_reprocess
@@ -1182,15 +1205,16 @@ reprocess_resolutions_with_shifter() {
 
 
 #The show unfolds from here:
+
 # Creating a directory for temporary file
 echo "Creating and moving into temporary directory"
 mkdir $crushdir
 cd $crushdir
 
 # Reading Resolutions
-if [ $juiceorcool -eq 0 ]; then 
-
-    cat << EOF > listres.py
+if [ $juiceorcool -eq 0 ]
+then
+cat << EOF > listres.py
 import hicstraw
 hic = hicstraw.HiCFile("$hicpath")
 totres=hic.getResolutions()
@@ -1205,8 +1229,8 @@ EOF
 res=`python listres.py`
 
 else
-    reslist=`cooler ls $hicpath | sed 's/\//\t/g' | awk -v var=$res -v cres=$coarsestres '{if (($NF >= var) && ($NF <= cres)) print $NF}' | sort -k 1bnr,1b --stable | awk '{if (NR == 1) printf "%s", $1; else printf ",%s", $1}' | awk '{print $0}'`
-    res=$reslist
+reslist=`cooler ls $hicpath | sed 's/\//\t/g' | awk -v var=$res -v cres=$coarsestres '{if (($NF >= var) && ($NF <= cres)) print $NF}' | sort -k 1bnr,1b --stable | awk '{if (NR == 1) printf "%s", $1; else printf ",%s", $1}' | awk '{print $0}'`
+res=$reslist
 fi
 
 
@@ -1275,8 +1299,9 @@ else
     cat $fastafile > $Bbins
 fi
 
-if [ $endZ == 0 ]; then
-    endZ=`echo "$minres"`
+if [ $endZ == 0 ]
+then
+endZ=`echo "$minres"`
 fi
 
 # Here is where I am running Eigen Block after reslist
@@ -1508,7 +1533,7 @@ if [ "$reshift" -gt 0 ]; then
 
             finalshifter=`echo "finalshifter.bedgraph"`
 
-            run_smoothing $newoutie $finalshifter
+            #run_smoothing $newoutie $finalshifter
 
             # Updating the resolution
             oldres=`echo "$myres"`
@@ -1522,10 +1547,10 @@ if [ "$reshift" -gt 0 ]; then
         fi
 
     done
-    rm mergedCrush2_*.bedgraph
-    rm $finalshifter
-    rm tmp2_shiftedleft
-    rm tmp1_shiftedright
+    #rm mergedCrush2_*.bedgraph
+    #rm $finalshifter
+    #rm tmp2_shiftedleft
+    #rm tmp1_shiftedright
 fi
 
 echo "Finished! Check the output."
