@@ -1514,56 +1514,58 @@ if [ "$reshift" -gt 0 ]; then
 
     echo "Going into Final Shifter"
 
-    # Final shifter
+    # Final shifter loop through resolutions
     for (( i=1; i<${#res_array[@]}; i++ )); do
 
         myres=${res_array[$i]}
 
         if [ $i -eq 1 ]; then
             echo "almost done..."
-            oldres=`echo "$myres"`
-            oldinnie=`echo "$outpre""mergedCrush_""$myres"".bedgraph"`
+            oldres="$myres"
+            oldinnie="$outpre""mergedCrush_""$myres"".bedgraph"
         else
-            newres=`echo "$myres"`
-            newinnie=`echo "$outpre""mergedCrush_""$myres"".bedgraph"`
-            newoutie=`echo "mergedCrush2_""$myres"".bedgraph"`
+            newres="$myres"
+            newinnie="$outpre""mergedCrush_""$myres"".bedgraph"
+            newoutie="mergedCrush2_""$myres"".bedgraph"
 
             # Run the shifter function
             run_shifter $newres $oldres $newinnie $oldinnie $newoutie
 
-            finalshifter=`echo "finalshifter.bedgraph"`
-        
-            # Smoothing Factor 
+            # Check and run smoothing if required
             if [ "$smoothing" -lt 1 ]; then
-                echo "Smoothening Function is turned on"
+                echo "Smoothing Function is turned on"
+                finalshifter="finalshifter.bedgraph"
                 run_smoothing $newoutie $finalshifter
             fi 
 
-            # Updating the resolution
-            oldres=`echo "$myres"`
-            oldinnie=`echo "mergedCrush2_""$myres"".bedgraph"`
+            # Update the resolution for the next iteration
+            oldres="$myres"
+            oldinnie="mergedCrush2_""$myres"".bedgraph"
 
             wait
 
-            mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' $newoutie > $newinnie    
+            # Apply track settings to newoutie
+            mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' $newoutie > $newinnie
             wait
 
-            #Fixing the Extra Bin 
-            #if [ $i -gt 0 ]; then
-            #    finaloutie3=`echo "mergedCrush3_""$myres"".bedgraph"`
-
-            #    #cat $sizefile | awk '{print $1"\t""1""\t"$2}' > $sizeBed
-
-            #    cat $newoutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $finaloutie3
-            #    mv $finaloutie3 $newoutie
-            #fi
+            # Fixing the extra bins if required
+            # Uncomment if you need this logic
+            # finaloutie3="mergedCrush3_""$myres"".bedgraph"
+            # cat $newoutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}' > $finaloutie3
+            # mv $finaloutie3 $newoutie
         fi
-
     done
-    #rm mergedCrush2_*.bedgraph
-    #rm $finalshifter
-    #rm tmp2_shiftedleft
-    #rm tmp1_shiftedright
+
+    # Clean up smoothing files if smoothing was applied
+    if [ "$smoothing" -lt 1 ]; then
+        rm $finalshifter
+        rm tmp2_shiftedleft
+        rm tmp1_shiftedright
+    fi 
+
+    # Optionally clean up merged bedgraphs
+    # rm mergedCrush2_*.bedgraph
+
 fi
 
 echo "Finished! Check the output."
