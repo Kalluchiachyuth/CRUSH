@@ -1545,7 +1545,7 @@ if [ "$reshift" -gt 0 ]; then
             wait
 
             # Apply track settings to newoutie
-            mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' $newoutie > $newinnie
+            cat $newoutie | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' > $newinnie
             wait
 
             # Fixing the extra bins if required
