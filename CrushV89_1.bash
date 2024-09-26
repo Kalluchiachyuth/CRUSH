@@ -30,7 +30,7 @@ norm=NONE #Default
 coarsestres=2500000
 pcalculation=1
 reshift=1
-smoothing=0
+smoothing=1
 
 # Trap for cleanup
 function shutdown() {
@@ -132,7 +132,7 @@ function help {
     echo "-f|--tmpfolder           :  Set this if you want to name the temporary folder youself. Make sure it doesn't already exist in your current working directory. Default is to name it CRUSHtmp with a randomnumber."
     echo "-m|--maxres              :  Set this to the coarsest resolution you want to consider. Default is to check every resolution between 1000000 and your desired resolution to inform each other." 
     echo "-R|--reshift             :  Set this to option to 0 for bypassing end-shifting. Default is 1." 
-    echo "-s|--smoothing           :  Set this to option to 1 for smoothening the compartments. Default is 0." 
+    echo "-s|--smoothing           :  Set this to option to 0 for smoothening the compartments. Default is 1." 
 
     # Add more options here if needed
 }
@@ -1451,12 +1451,12 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
 
         cat $sizefile | awk '{print $1"\t""1""\t"$2}' > $sizeBed
 
-        cat $finaloutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $finaloutie2
+        cat $finaloutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}'> $finaloutie2
         mv $finaloutie2 $finaloutie
 
         #Calculating the qthreshold values
         if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then 
-            cat $finaloutiefilt | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $filt_todelete
+            cat $finaloutiefilt | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}'> $filt_todelete
             wait
             mv $filt_todelete $finaloutiefilt
             mv $finalpoutie ../
@@ -1534,7 +1534,7 @@ if [ "$reshift" -gt 0 ]; then
             finalshifter=`echo "finalshifter.bedgraph"`
         
             # Smoothing Factor 
-            if [ "$smoothing" -gt 0 ]; then
+            if [ "$smoothing" -lt 1 ]; then
                 echo "Smoothening Function is turned on"
                 run_smoothing $newoutie $finalshifter
             fi 
@@ -1548,6 +1548,15 @@ if [ "$reshift" -gt 0 ]; then
             mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' $newoutie > $newinnie    
             wait
 
+            #Fixing the Extra Bin 
+            #if [ $i -gt 0 ]; then
+            #    finaloutie3=`echo "mergedCrush3_""$myres"".bedgraph"`
+
+            #    #cat $sizefile | awk '{print $1"\t""1""\t"$2}' > $sizeBed
+
+            #    cat $newoutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $finaloutie3
+            #    mv $finaloutie3 $newoutie
+            #fi
         fi
 
     done
