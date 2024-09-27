@@ -698,39 +698,42 @@ process_oppocheck_statement() {
     # Adjust compartmental values if needed
     if [[ "$oppocheck" -gt 0 && "$adjustment" -gt 0 ]]; then
 
-    #    amed=`mawk 'NR==FNR { c1[$1] = $2; next} {if ($2 in c1) print $4}' $innie_genes $outie_oppo | mawk '{sum +=$1} END {print sum/NR}'`
-    #    bmed=`mawk 'NR==FNR { c1[$1] = $2; next} {if ($2 in c1); else print $4}' $innie_genes $outie_oppo | mawk '{sum += $1} END {print sum/NR}'`
-
-    #    wait
-
-    #    cat $outie_oppo | mawk -v varA=$amed -v varB=$bmed '{print $1"\t"$2"\t"$3"\t"$4-(varA-(varB*-1))}' > $outie2
-
-    #    wait
-
-    #    mv $outie2 $outie_oppo
-
-        amed=`awk '{if ($4 > 0) print $4}' |  awk '{if (NR == 1) geom=$1; else geom=($1*geom)} END {print geom**(1/NR)}'`
-        bmed=`awk '{if ($4 < 0) print $4*-1}' |  awk '{if (NR == 1) geom=$1; else geom=($1*geom)} END {print geom**(1/NR)}'`
+        amed=`mawk 'NR==FNR { c1[$1] = $2; next} {if ($2 in c1) print $4}' $innie_genes $outie_oppo | mawk '{sum +=$1} END {print sum/NR}'`
+        bmed=`mawk 'NR==FNR { c1[$1] = $2; next} {if ($2 in c1); else print $4}' $innie_genes $outie_oppo | mawk '{sum += $1} END {print sum/NR}'`
 
         wait
+
+        cat $outie_oppo | mawk -v varA=$amed -v varB=$bmed '{print $1"\t"$2"\t"$3"\t"$4-(varA-(varB*-1))}' > $outie2
+
+        wait
+
+        mv $outie2 $outie_oppo
+
+    #    amed=`awk '{if ($4 > 0) print $4}' |  awk '{if (NR == 1) geom=$1; else geom=($1*geom)} END {print geom**(1/NR)}'`
+    #    bmed=`awk '{if ($4 < 0) print $4*-1}' |  awk '{if (NR == 1) geom=$1; else geom=($1*geom)} END {print geom**(1/NR)}'`
+
+    #    wait
 
         # Adjust values using amed and bmed
-        cat "$outie_oppo" | mawk -v varA="$amed" -v varB="$bmed" '{ print $1 "\t" $2 "\t" $3 "\t" $4 - (varA - varB) }' > "$outie2"
-        wait
-        mv "$outie2" "$outie_oppo"
+    #    cat "$outie_oppo" | mawk -v varA="$amed" -v varB="$bmed" '{ print $1 "\t" $2 "\t" $3 "\t" $4 - (varA - varB) }' > "$outie2"
+    #    wait
+    #    mv "$outie2" "$outie_oppo"
     fi
 
-    #if [ "$myres" -ge "$endZ" ]; then
+    if [ "$myres" -ge "$endZ" ]; then
 
-    #    myendmean=`cat $outie_oppo | mawk '{sum += $4; cnum++} END {print sum/cnum}'`
-    #    echo "$myendmean"
-    #    tmpendZ="${output_dir}/tmpendnorm"
-    #    cat $outie_oppo | mawk -v mymean=$myendmean '{print $1"\t"$2"\t"$3"\t"($4-mymean)}' > $tmpendZ
-    
-    #    wait
+        myendmean=`cat $outie_oppo | mawk '{sum += $4; cnum++} END {print sum/cnum}'`
 
-    #    mv $tmpendZ $outie_oppo
-    #fi
+        echo "$myendmean"
+
+        tmpendZ="${output_dir}/tmpendnorm"
+
+        cat $outie_oppo | mawk -v mymean=$myendmean '{print $1"\t"$2"\t"$3"\t"($4-mymean)}' > $tmpendZ
+
+        wait
+
+        mv $tmpendZ $outie_oppo
+    fi
 }
 
 # Shifter function
@@ -790,15 +793,19 @@ if [ "$switch" -eq 1 ]; then
 
     echo "Re-initialization of Bins is switched ""ON"". Re-evaluating both A and B bins and re-initializing for next resolution."
 
-    cat $EVBstates | intersectBed -u -a stdin -b $BbinsR > $newBbins
+    #cat $EVBstates | intersectBed -u -a stdin -b $BbinsR > $newBbins
+    cat $Bbins | intersectBed -u -a stdin -b $BbinsR > $newBbins
 
-    awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newBbins $EVBstates > $non_newBbins
+    #awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newBbins $EVBstates > $non_newBbins
+    awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newBbins $Bbins > $non_newBbins
 
     cat $newBbins $non_newBbins > $combined_newBbins 
 
-    cat $EVAstates | intersectBed -u -a stdin -b $AbinsR > $newAbins
+    #cat $EVAstates | intersectBed -u -a stdin -b $AbinsR > $newAbins
+    cat $genes_file | intersectBed -u -a stdin -b $AbinsR > $newAbins
 
-    awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newAbins $EVAstates > $non_newAbins
+    #awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newAbins $EVAstates > $non_newAbins
+    awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newAbins $genes_file > $non_newAbins
 
     cat $newAbins $non_newAbins > $combined_newAbins 
 
