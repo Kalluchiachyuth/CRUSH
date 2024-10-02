@@ -1209,9 +1209,6 @@ process_resolution() {
     #Smoothing the outiefull 
     #Savitzky_Golay $outiefull1 $outiefull
 
-    #Setting up for shifter
-
-    #Setting up for shifter
 
 if [ "$myres" == "$maxres" ]
 then
