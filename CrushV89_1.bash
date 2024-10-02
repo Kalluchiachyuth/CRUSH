@@ -17,6 +17,7 @@ trackline=1
 threshold=10
 totreads=0
 lowerthresh=0
+window=0
 verbose=0
 switch=1
 qthresh=0.05
@@ -120,6 +121,7 @@ function help {
     echo "-t|--trackline           :  Set to 0 if you want to disable printing a bedgraph trackline header."
     echo "-T|--threshold           :  Distance normalized threshold to filter out extreme outliers."
     echo "-l|--lowerthresh         :  Set the value for lowerthresh."
+    echo "-w|--window              :  Set to perform a sliding window average of the scores at individual resolutions. Default is to calculate the appropriate window based on sequencing depth. Set to 1 to remove sliding window."
     echo "-v|--verbose             :  Set to 1 to enable verbose mode showing extensive messages."
     echo "-S|--switch              :  Set this option to 0 for bypassing re-initialization. Default is 1."  
     echo "-N|--norm                :  Set the normalization scheme to use. Options are NONE, VC, VC_SQRT, KR, SCALE. Default is NONE."
@@ -133,7 +135,6 @@ function help {
     echo "-m|--maxres              :  Set this to the coarsest resolution you want to consider. Default is to check every resolution between 1000000 and your desired resolution to inform each other." 
     echo "-R|--reshift             :  Set this to option to 0 for bypassing end-shifting. Default is 1." 
     echo "-s|--smoothing           :  Set this to option to 0 for smoothening the compartments. Default is 1." 
-
     # Add more options here if needed
 }
 
@@ -195,6 +196,9 @@ while test $# -gt 0; do
             ;;
         -T|--threshold)
             threshold=$2
+            ;;
+        -w|--window)
+            window=$2
             ;;
         -v|--verbose)
             verbose=$2
@@ -263,7 +267,7 @@ if [ $adjustment == 1 ]; then
     echo "Warning: adjusting end compartmental values which may result in some loss of quantitative power. We recommend adjustment only for troubleshooting or when not comparing two samples."
 fi
 
-echo "CRUSH_v""$version"" --hic ""$hicpath"" --res ""$res"" --genomesize ""$sizefile"" --initialA ""$genesfile"" --initialB ""$fastafile"" --cpu ""$cpu"" --no-merge ""$doNotMerge"" --adjustment ""$adjustment"" --distance ""$distance"" --upperlim ""$upperlim"" --lowerthresh ""$lowerthresh"" --trackline ""$trackline"" --threshold ""$threshold""  --switch ""$switch"" --maxres ""$coarsestres"" --norm ""$norm" > "$outpre"CRUSHparamters.txt
+echo "CRUSH_v""$version"" --hic ""$hicpath"" --res ""$res"" --genomesize ""$sizefile"" --initialA ""$genesfile"" --initialB ""$fastafile"" --cpu ""$cpu"" --no-merge ""$doNotMerge"" --adjustment ""$adjustment"" --distance ""$distance"" --upperlim ""$upperlim"" --lowerthresh ""$lowerthresh"" --trackline ""$trackline"" --threshold ""$threshold"" --window ""$window"" --switch ""$switch"" --maxres ""$coarsestres"" --norm ""$norm" > "$outpre"CRUSHparamters.txt
 
 # Check if the input file is .hic or .mcool
 juiceorcool=`echo "$hicpath" | sed 's/\./\t/g' | sed 's/\./\t/g' | awk '{if ($NF == "hic") print 0; else if ($NF == "mcool") print 1; else print 2}'`
@@ -282,8 +286,8 @@ fi
 
 # Function to run dumper.py script
 run_dumper() {
-    local readtype=$1  # Can be observed, oe, expected
-    local norm=$2      # Can be NONE, VC, VC_SQRT, SCALE, KR
+    local readtype=$1 # Can be observed, oe, expected
+    local norm=$2 # Can be NONE, VC, VC_SQRT, SCALE, KR
     local hicinnie=$3
     local chrom=$4
     local res=$5
@@ -323,7 +327,7 @@ process_genes_Bbins() {
 
         # Processing the genes & Bbins files 
         cat $EVAstates | mawk -v myres=$maxres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$maxres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
-        
+
         # Bbins
         cat $EVBstates |  mawk -v myres=$maxres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$maxres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $pseudoB
 
@@ -634,6 +638,44 @@ run_smoothing() {
     mv shifted_outie "$innieS"
 }
 
+# Function for Savitzky-Golay smoothing
+Savitzky_Golay() {
+    local innieSG=$1
+    local outieSG=$2
+
+    echo "Smoothening function"
+
+    cat << EOF > Savitzky_Golay.py
+import numpy as np
+from scipy.signal import savgol_filter
+import sys
+
+# Input and output files
+inputfile = sys.argv[1]
+outfile = sys.argv[2]
+
+# Load the compartment data
+data = np.loadtxt(inputfile, dtype=str)
+chromosomes = data[:, 0]
+start_positions = data[:, 1].astype(int)
+end_positions = data[:, 2].astype(int)
+scores = data[:, 3].astype(float)
+
+# Apply Savitzky-Golay filter
+window_length = 3  # Choose an odd number
+polyorder = 2  # Polynomial order
+smoothed_scores = savgol_filter(scores, window_length=window_length, polyorder=polyorder)
+
+# Save the smoothed data
+with open(outfile, 'w') as outie:
+    for chrom, start, end, score in zip(chromosomes, start_positions, end_positions, smoothed_scores):
+        outie.write(f"{chrom}\t{start}\t{end}\t{score}\n")
+EOF
+
+    # Execute the Python script
+    python Savitzky_Golay.py "$innieSG" "$outieSG"
+}
+
 # Function to generate A and B compartmental states
 process_oppocheck_statement() {
     local innie_genes="$1"
@@ -675,7 +717,7 @@ process_oppocheck_statement() {
     fi
 
     # Calculate the output
-    mawk -v var="$res" -v myABsum="$myABsum" '{ if ($1 in b) b[$1] -= $2; else b[$1] = $2 } END { for (i in b) { if (b[i] != 0) print i "\t" (b[i])/myABsum } }' "${output_dir}/A2removedfile" "${output_dir}/B2removedfile" | sort -k 1bn,1b --stable | mawk -v mchr="$chr" -v myres="$res" -v OFS="\t" '{ print mchr, int($1), $2; count++ }' | mawk -v myres="$res" '{ print $1 "\t" $2-int(myres/2)+myres "\t" $2+(int(myres/2))+myres "\t" $3 }' | mawk '{ if ($2 > 0) print $0 }' > "$outie_oppo" 2> "${output_dir}/errorfile"
+    mawk -v var="$res" -v myABsum="$myABsum" '{ if ($1 in b) b[$1] -= $2; else b[$1] = $2 } END { for (i in b) { if (b[i] != 0) print i "\t" (b[i])/myABsum } }' "${output_dir}/A2removedfile" "${output_dir}/B2removedfile" | sort -k 1bn,1b --stable | mawk -v mchr="$chr" -v myres="$res" -v window="$newwindow" -v OFS="\t" 'BEGIN { slide = 1 } { mod = NR % window; if (NR <= window) { print mchr, int($1), $2; count++ } else { sum -= array[mod] } sum += $2; array[mod] = $2;} (NR % slide) == 0 { print mchr, int($1-((myres*window)/2)), sum/count }' | mawk -v myres="$res" '{ print $1 "\t" $2-int(myres/2)+myres "\t" $2+(int(myres/2))+myres "\t" $3 }' | mawk '{ if ($2 > 0) print $0 }' > "$outie_oppo" 2> "${output_dir}/errorfile"
 
     # Process exclusion regions if exclbed file is provided
     if [ "$exclbed" != 0 ]; then
@@ -709,25 +751,22 @@ process_oppocheck_statement() {
 
         mv $outie2 $outie_oppo
 
-    #    amed=`awk '{if ($4 > 0) print $4}' |  awk '{if (NR == 1) geom=$1; else geom=($1*geom)} END {print geom**(1/NR)}'`
-    #    bmed=`awk '{if ($4 < 0) print $4*-1}' |  awk '{if (NR == 1) geom=$1; else geom=($1*geom)} END {print geom**(1/NR)}'`
+        #amed=`awk '{if ($4 > 0) print $4}' |  awk '{if (NR == 1) geom=$1; else geom=($1*geom)} END {print geom**(1/NR)}'`
+        #bmed=`awk '{if ($4 < 0) print $4*-1}' |  awk '{if (NR == 1) geom=$1; else geom=($1*geom)} END {print geom**(1/NR)}'`
 
-    #    wait
+        #wait
 
         # Adjust values using amed and bmed
-    #    cat "$outie_oppo" | mawk -v varA="$amed" -v varB="$bmed" '{ print $1 "\t" $2 "\t" $3 "\t" $4 - (varA - varB) }' > "$outie2"
-    #    wait
-    #    mv "$outie2" "$outie_oppo"
+        #cat "$outie_oppo" | mawk -v varA="$amed" -v varB="$bmed" '{ print $1 "\t" $2 "\t" $3 "\t" $4 - (varA - varB) }' > "$outie2"
+        #wait
+        #mv "$outie2" "$outie_oppo"
     fi
 
     if [ "$myres" -ge "$endZ" ]; then
 
         myendmean=`cat $outie_oppo | mawk '{sum += $4; cnum++} END {print sum/cnum}'`
-
         echo "$myendmean"
-
         tmpendZ="${output_dir}/tmpendnorm"
-
         cat $outie_oppo | mawk -v mymean=$myendmean '{print $1"\t"$2"\t"$3"\t"($4-mymean)}' > $tmpendZ
 
         wait
@@ -736,8 +775,109 @@ process_oppocheck_statement() {
     fi
 }
 
+#Shifter function
+run_midshifter() {
+    local finer_res=$1
+    local coarser_res=$2
+    local high_innie=$3
+    local coarse_innie=$4
+    local shifter_outie=$5
+
+    echo "Running shifter with Finer Resolution: $finer_res and Coarser Resolution: $coarser_res"
+    echo "High-res file: $high_innie, Coarse-res file: $coarse_innie"
+    
+    # Generate Python script for shifter
+    cat << EOF > hdrescompare.py
+import numpy as np
+from tqdm import tqdm
+
+# File paths and parameters
+sizefile = "$sizefile"
+res = int("$finer_res")
+coarseres = int("$coarser_res")
+infile1 = "$high_innie"
+infile2 = "$coarse_innie"
+outiewrite = "$shifter_outie"
+
+# Read chromosome names and sizes
+chrnames = []
+chrsizes = []
+with open(sizefile, 'r') as innie:
+    for line in innie:
+        sline = line.strip()
+        lines = sline.split("\t")
+        chrnames.append(lines[0])
+        chrsizes.append(int(lines[1]))
+
+# Initialize matrices
+chrmat = [[] for _ in chrnames]
+smat = [[] for _ in chrnames]
+emat = [[] for _ in chrnames]
+scoremat = [[] for _ in chrnames]
+coscoremat = [[] for _ in chrnames]
+
+# Populate base matrices
+for i in tqdm(range(len(chrnames))):
+    for j in range(0, chrsizes[i] + coarseres + coarseres, res):
+        chrmat[i].append(chrnames[i])
+        smat[i].append(j)
+        emat[i].append(j + res)
+        scoremat[i].append(0)
+        coscoremat[i].append(0)
+
+# Read high-resolution scores
+with open(infile1, 'r') as innie:
+    for line in innie:
+        sline = line.strip()
+        lines = sline.split("\t")
+        try:
+            myindex = chrnames.index(lines[0])
+            mypos = int(float(lines[1])/res)
+            scoremat[myindex][mypos] = float(lines[3])
+        except (ValueError, IndexError):
+            continue
+
+# Rolling window size (number of high-resolution bins to consider)
+window_size = 3 * (coarseres // res)
+
+# Rolling average calculation
+rolling_avg_scores = [[] for _ in chrnames]
+for c in range(len(scoremat)):
+    for i in range(len(scoremat[c])):
+        window_start = max(0, i - window_size // 2)
+        window_end = min(len(scoremat[c]), i + window_size // 2)
+        window_scores = scoremat[c][window_start:window_end]
+        rolling_avg_scores[c].append(np.mean(window_scores))
+
+# Initialize shifted_scores with zeros
+shifted_scores = [[0 for _ in range(len(scoremat[c]))] for c in range(len(scoremat))]
+
+# Calculate shifted scores
+for c in range(len(scoremat)):
+    for i in range(len(scoremat[c])):
+        mymean = rolling_avg_scores[c][i]
+        coarscore = coscoremat[c][i] if i < len(coscoremat[c]) else 0  # Handle index if out of range
+        shiftval = mymean - coarscore
+        newval = scoremat[c][i] - shiftval
+        shifted_scores[c][i] = newval
+
+# Write output
+with open(outiewrite, "w") as ofile:
+    for w in range(len(shifted_scores)):
+        for p in range(len(shifted_scores[w])):
+            ofile.write(f"{chrmat[w][p]}\t{smat[w][p]}\t{emat[w][p]}\t{shifted_scores[w][p]}\n")
+EOF
+
+    # Execute the Python script
+    python hdrescompare.py
+
+    echo "After Shifter: Executed with Coarser Resolution: $coarser_res, Finer Resolution: $finer_res"
+    echo "Shifter executed and output written to $shifter_outie"
+
+}
+
 # Shifter function
-run_shifter() {
+run_endshifter() {
     local finer_res=$1
     local coarser_res=$2
     local high_innie=$3
@@ -750,11 +890,11 @@ run_shifter() {
     # Generate intervals
     awk -v var="$coarser_res" '
         {
-            for (i=0; i<=$2; i+=var) {          # Loop from 0 to the size of the chromosome in steps of "var"
-                start = i              # Calculate the start of the interval (2 bins to the left)
-                end = i+(var)               # Calculate the end of the interval (3 bins to the right)
-                if (start < 0) start = 0        # Ensure the start is not negative
-                if (end > $2) end = $2          # Ensure the end does not exceed the chromosome length
+            for (i=0; i<=$2; i+=var) {   # Loop from 0 to the size of the chromosome in steps of "var"
+                start = i-(var*2)        # Calculate the start of the interval (2 bins to the left)
+                end = i+(var*3)          # Calculate the end of the interval (3 bins to the right)
+                if (start < 0) start = 0  # Ensure the start is not negative
+                if (end > $2) end = $2   # Ensure the end does not exceed the chromosome length
                 print $1 "\t" start "\t" end    # Print the chromosome name, start, and end of the interval
             }
         }
@@ -768,6 +908,7 @@ run_shifter() {
 
     echo "Shifter executed and output written to $shifter_outie"
 }
+
 
 # Separating out A and B regions from the outiefull and intersecting with the genes and Bbins to improve compartments identification
 separating_ABbins() {
@@ -793,19 +934,15 @@ if [ "$switch" -eq 1 ]; then
 
     echo "Re-initialization of Bins is switched ""ON"". Re-evaluating both A and B bins and re-initializing for next resolution."
 
-    #cat $EVBstates | intersectBed -u -a stdin -b $BbinsR > $newBbins
     cat $Bbins | intersectBed -u -a stdin -b $BbinsR > $newBbins
 
-    #awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newBbins $EVBstates > $non_newBbins
     awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newBbins $Bbins > $non_newBbins
 
     cat $newBbins $non_newBbins > $combined_newBbins 
 
-    #cat $EVAstates | intersectBed -u -a stdin -b $AbinsR > $newAbins
-    cat $genes_file | intersectBed -u -a stdin -b $AbinsR > $newAbins
+    cat $genesfile | cut -f 1-3 | intersectBed -u -a stdin -b $AbinsR > $newAbins
 
-    #awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newAbins $EVAstates > $non_newAbins
-    awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newAbins $genes_file > $non_newAbins
+    awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newAbins $genesfile > $non_newAbins
 
     cat $newAbins $non_newAbins > $combined_newAbins 
 
@@ -890,10 +1027,20 @@ declare -a maxres_processed=0
 
 # Function to process a given resolution and generate output
 process_resolution() {
-    local myres=$1       # Resolution
+    local myres=$1  # Resolution
     local genesblock=$2  # Block for gene regions
 
+    if [ $window == 0 ]; then
+        # Calculate total bins for the chromosome size file and set the default window size
+        totbins=$(awk -v var=$myres '{print $1"\t"($2/var)**2}' $sizefile | awk '{sum += $2} END {print sum}')
+        newwindow=1
+    else
+        # Set the new window size
+        newwindow=$(mawk -v win=$window -v res=$myres 'BEGIN{print int(win/(res/1000))+1}')
+    fi
+
     # Define output filenames based on resolution
+    outiefull1="Crush1_${myres}.bedgraph"
     outiefull="Crush_${myres}.bedgraph"
 
     echo -e "\nNow dumping reads and calculating initial CRUSH for all chromosomes at $myres"
@@ -905,8 +1052,8 @@ process_resolution() {
         rowbins=$(awk -v myres=$myres -v var=$myiter 'NR==var {print int($2/myres)+1}' $sizefile)
         
         # Define temporary filenames
-        outie="Crush_original_${myres}_${mychr}_tmp"
-        outie2="Crush_original_${myres}_${mychr}_tmp2"
+        outie="Crush_${myres}_${mychr}_tmp"
+        outie2="Crush_${myres}_${mychr}_tmp2"
         tmpfiles="ABtmpfiles_${mychr}_${myres}"
 
         # Create temporary directory if not exists
@@ -922,6 +1069,7 @@ process_resolution() {
         # Define more temporary filenames
         sortedbed="${tmpfiles}/genebins"
         pseudoB="${tmpfiles}/pseudoB"
+        fakiegenes="${tmpfiles}/fakiegenes"
         dumped="${tmpfiles}/dumped_${myres}_${mychr}_tmp"
 
         # Initialize states and bins
@@ -1054,41 +1202,86 @@ process_resolution() {
     echo "Resolution: $myres for Resolution output"
     echo -ne "Merging individual chromosome files\033[0K\r"
 
-    cat Crush_original_${myres}_*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefull
+    cat Crush*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefull
 
     wait 
 
+    #Smoothing the outiefull 
+    #Savitzky_Golay $outiefull1 $outiefull
+
     #Setting up for shifter
-    if [ "$myres" == "$maxres" ]; then
-        coarse_infile=`echo "GI_""$myres"".bedgraph"`
-        cat $outiefull > $coarse_infile
-        wait
-    fi
 
-    res_values=`echo "res_values"`
-    echo "$myres" >> $res_values
+    #Setting up for shifter
 
-    # Re-evaluating both A and B bins for re-initialization for next resolution
-    if [ "$countres" -gt 0 ]; then
+if [ "$myres" == "$maxres" ]
+then
+coarse_infile=`echo "GI_""$myres"".bedgraph"`
+cat $outiefull > $coarse_infile
 
-        python_output="shifter.bedgraph"
+wait
+fi
 
-        high_res_infile="$outiefull"
-        coarse_res_infile="$coarse_infile"
+res_values=`echo "res_values"`
+echo "$myres" >> $res_values
 
-        # Executing the Shifter Python Script
-        run_shifter $high_res $coarse_res $high_res_infile $coarse_res_infile $python_output
+# Re-evaluating both A and B bins for re-initialization for next resolution
 
-        cat $python_output > $high_res_infile
+if [ "$countres" -gt 0 ]
+then
 
-        echo "Resolution: $myres for shifter output"
-        separating_ABbins $high_res_infile
+# Creating a python output file 
+python_output=`echo "shifter.bedgraph"`
 
-        coarse_res=$high_res
-        coarse_infile=$high_res_infile
-    else
-        separating_ABbins $outiefull
-    fi
+if [ "$coarse_res" -eq "$maxres" ] && [ "$coarse_res" != "$high_res" ]
+then
+
+# Shifter Input files for the specified resolutions
+high_res_infile=`echo "$outiefull"`
+coarse_res_infile=`echo "$coarse_infile"`
+
+else
+# Shifter Input files for the specified resolutions
+high_res_infile=`echo "$outiefull"` 
+coarse_res_infile=`echo "$python_output"`
+
+fi
+
+# Conditional checking for multiples of resolutions for shifter 
+# If coarseres is divisible by highres, use these resolutions for shifter as coarse and high
+if [[ "$(( $coarse_res % $high_res ))" -eq 0 ]]
+then
+
+crtmp=$coarse_res
+
+else
+
+if [[ "$(( $crtmp % $high_res ))"  -eq 0 ]]
+then
+
+coarse_res=$crtmp
+
+fi
+
+fi
+
+# Executing the Shifter Python Script
+run_midshifter $high_res $coarse_res $high_res_infile $coarse_res_infile $python_output
+
+#Adding this to check python output
+echo "Resolution: "$myres" for shifter output"
+
+#Separating A/B bins using Shifter python output
+separating_ABbins $python_output
+
+# Update coarse and high resolutions
+coarse_res=$high_res
+
+else
+
+#Separating A/B bins using Resolution based Output
+separating_ABbins $outiefull
+
+fi
 
     wait
 
@@ -1117,6 +1310,7 @@ reprocess_resolutions_with_shifter() {
 
         highres_reprocess=$prev_res
 
+        local outiefull_reprocess1=`echo "Crush_reprocess1_""$prev_res"".bedgraph"`
         local outiefull_reprocess=`echo "Crush_reprocess_""$prev_res"".bedgraph"`
         local outiefullPval_reprocess=`echo "pvalues_reprocess_""$prev_res"".bedgraph"`
 
@@ -1156,8 +1350,10 @@ reprocess_resolutions_with_shifter() {
 
         # Merge the reprocessed CRUSH files
         echo -ne "Merging individual chromosome files\033[0K\r"
-        
-        cat Crush_reprocess_${prev_res}_*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefull_reprocess
+        cat Crush_reprocess_${prev_res}*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefull_reprocess
+
+        #Smoothing the outiefull 
+        #Savitzky_Golay $outiefull_reprocess1 $outiefull_reprocess
 
         if [ $prev_res -eq $minres ] && [ $pcalculation -gt 0 ]; then
         
@@ -1167,10 +1363,12 @@ reprocess_resolutions_with_shifter() {
             wait 
         fi
 
-        # Set the coarse input file if processing the maximum resolution
+
         if [ "$prev_res" == "$maxres" ]; then
-            coarse_infile_reprocess=`echo "GI_reprocess_""$prev_res"".bedgraph"`
+
+            coarse_infile_reprocess=`echo "GI_Re_""$prev_res"".bedgraph"`
             cat $outiefull_reprocess > $coarse_infile_reprocess
+
             wait
         fi
 
@@ -1178,15 +1376,38 @@ reprocess_resolutions_with_shifter() {
         echo "$prev_res" >> $prev_values
 
         # Re-evaluating both A and B bins for re-initialization for next resolution
+
         echo "$j"
 
         if [ "$j" -gt 0 ]; then
-            python_output_reprocess_copy="shifter_reprocess_Copy_${prev_res}.bedgraph"
 
-            highres_infile_reprocess=$outiefull_reprocess
-            coarse_res_infile_reprocess=$coarse_infile_reprocess
+            if [ "$coarse_res_reprocess" -eq "$maxres" ] && [ "$coarse_res_reprocess" != "$highres_reprocess" ]; then
+                # Shifter Input files for the specified resolutions
+                highres_infile_reprocess=`echo "$outiefull_reprocess"`
+                coarse_res_infile_reprocess=`echo "$coarse_infile_reprocess"`
 
-            # Ensure both highres and coarse resolution files exist
+            else
+                highres_infile_reprocess=`echo "$outiefull_reprocess"` 
+                coarse_res_infile_reprocess=`echo "$python_output"`
+
+            fi
+
+            # Conditional checking for multiples of resolutions for shifter 
+            # If coarseres is divisible by highres, use these resolutions for shifter as coarse and high
+            if [[ "$(( $coarse_res_reprocess % $highres_reprocess ))" -eq 0 ]]; then
+
+                crtmp_reprocess=$coarse_res_reprocess
+
+            else
+
+                if [[ "$(( $crtmp_reprocess % $highres_reprocess ))"  -eq 0 ]]; then
+
+                coarse_res_reprocess=$crtmp_reprocess
+
+                fi
+
+            fi
+
             if [ -f "$highres_infile_reprocess" ] && [ -f "$coarse_res_infile_reprocess" ]; then
                 echo "Files exist: $highres_infile_reprocess, $coarse_res_infile_reprocess"
             else
@@ -1195,23 +1416,26 @@ reprocess_resolutions_with_shifter() {
 
             echo "Running shifter for $prev_res"
 
-            # Run the shifter function
-            run_shifter $highres_reprocess $coarse_res_reprocess $highres_infile_reprocess $coarse_res_infile_reprocess $python_output
-
-            cat $python_output > $highres_infile_reprocess
+            # Executing the Shifter Python Script
+            run_midshifter $highres_reprocess $coarse_res_reprocess $highres_infile_reprocess $coarse_res_infile_reprocess $python_output
 
             echo "Shifter run completed for $prev_res"
-            echo "Resolution: $prev_res for shifter output"
 
-            # Separate A/B bins using the shifter output
-            separating_ABbins $highres_infile_reprocess
+            #Adding this to check python output
+            echo "Resolution: "$prev_res" for shifter output"
 
+            #Separating A/B bins using Shifter python output
+            separating_ABbins $python_output
+
+            # Update coarse and high resolutions
             coarse_res_reprocess=$highres_reprocess
-            coarse_infile_reprocess=$highres_infile_reprocess
+
         else
-            # Separate A/B bins using the resolution-based output
+            #Separating A/B bins using Resolution based Output
             separating_ABbins $outiefull_reprocess
+
         fi
+    
     done
 }
 
@@ -1420,34 +1644,40 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
 
         GIave=`cat $finaloutie | mawk '{if ($4 < 0) sum+=($4*-1); else sum+=($4)} END {print sum/NR}' `
 
-        if [ $(bc <<< "$qthresh > 0") -eq 1 ]; then
-            finaloutiefilt=`echo "$outpre""mergedCrush_""$myres""_qfiltered_reprocess.bedgraph"`
-            filt_todelete=`echo "tmpcrushfiltered_""$myres""_reprocess"`
+        if [ $(bc <<< "$qthresh > 0") -eq 1 ]
+        then
 
-            mawk -v fdr=$qthresh -v var=$GIave 'NR==FNR {a[$1":"$2":"$3] = $4; next} {if (a[$1":"$2":"$3] <= fdr) print $1"\t"$2"\t"$3"\t"$4/(var/100)}'  $finalpoutie $finaloutie> $finaloutiefilt
+        finaloutiefilt=`echo "$outpre""mergedCrush_""$myres""_qfiltered_reprocess.bedgraph"`
+        filt_todelete=`echo "tmpcrushfiltered_""$myres""_reprocess"`
+
+        mawk -v fdr=$qthresh -v var=$GIave 'NR==FNR {a[$1":"$2":"$3] = $4; next} {if (a[$1":"$2":"$3] <= fdr) print $1"\t"$2"\t"$3"\t"$4/(var/100)}'  $finalpoutie $finaloutie> $finaloutiefilt
 
         fi
 
-        if [ $trackline -eq 0 ]; then
-            cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' > $Crush_todelete
-            cat $finalpoutie | mawk '{print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
+        if [ $trackline -eq 0 ]
+        then
+
+        cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' > $Crush_todelete
+        cat $finalpoutie | mawk '{print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
 
         else
 
-            cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$0; else print $0}' > $Crush_todelete
-            cat $finalpoutie | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$1"\t"$2"\t"$3"\t"$4; else print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
-            wait
+        cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$0; else print $0}' > $Crush_todelete
+        cat $finalpoutie | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20:20 autoScale off\n"$1"\t"$2"\t"$3"\t"$4; else print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
+        wait
         fi
 
-        if [ $trackline -gt 0 ] && [ $(bc <<< "$qthresh > 0") -eq 1 ]; then
-            cat $finaloutiefilt | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20,20 autoScale off\n"$0; else print $0}' > $filt_todelete
-            wait
+        if [ $trackline -gt 0 ] && [ $(bc <<< "$qthresh > 0") -eq 1 ]
+        then
 
-            mv $filt_todelete $finaloutiefilt
-            mv $Crush_todelete $finaloutie
-            mv $pval_todelete $finalpoutie
+        cat $finaloutiefilt | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20,20 autoScale off\n"$0; else print $0}' > $filt_todelete
+        wait
 
-            wait
+        mv $filt_todelete $finaloutiefilt
+        mv $Crush_todelete $finaloutie
+        mv $pval_todelete $finalpoutie
+
+        wait
 
         fi
 
@@ -1458,12 +1688,11 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
 
         cat $sizefile | awk '{print $1"\t""1""\t"$2}' > $sizeBed
 
-        cat $finaloutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}'> $finaloutie2
+        cat $finaloutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $finaloutie2
         mv $finaloutie2 $finaloutie
 
-        #Calculating the qthreshold values
         if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then 
-            cat $finaloutiefilt | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}'> $filt_todelete
+            cat $finaloutiefilt | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $filt_todelete
             wait
             mv $filt_todelete $finaloutiefilt
             mv $finalpoutie ../
@@ -1521,22 +1750,22 @@ if [ "$reshift" -gt 0 ]; then
 
     echo "Going into Final Shifter"
 
-    # Final shifter loop through resolutions
+    # Final shifter
     for (( i=1; i<${#res_array[@]}; i++ )); do
 
         myres=${res_array[$i]}
 
         if [ $i -eq 1 ]; then
             echo "almost done..."
-            oldres="$myres"
-            oldinnie="$outpre""mergedCrush_""$myres"".bedgraph"
+            oldres=`echo "$myres"`
+            oldinnie=`echo "$outpre""mergedCrush_""$myres"".bedgraph"`
         else
-            newres="$myres"
-            newinnie="$outpre""mergedCrush_""$myres"".bedgraph"
-            newoutie="mergedCrush2_""$myres"".bedgraph"
+            newres=`echo "$myres"`
+            newinnie=`echo "$outpre""mergedCrush_""$myres"".bedgraph"`
+            newoutie=`echo "mergedCrush2_""$myres"".bedgraph"`
 
             # Run the shifter function
-            run_shifter $newres $oldres $newinnie $oldinnie $newoutie
+            run_endshifter $newres $oldres $newinnie $oldinnie $newoutie
 
             # Check and run smoothing if required
             if [ "$smoothing" -lt 1 ]; then
@@ -1545,24 +1774,18 @@ if [ "$reshift" -gt 0 ]; then
                 run_smoothing $newoutie $finalshifter
             fi 
 
-            # Update the resolution for the next iteration
-            oldres="$myres"
-            oldinnie="mergedCrush2_""$myres"".bedgraph"
+            # Updating the resolution
+            oldres=`echo "$myres"`
+            oldinnie=`echo "mergedCrush2_""$myres"".bedgraph"`
 
             wait
 
-            # Apply track settings to newoutie
-            cat $newoutie | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' > $newinnie
+            mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}' $newoutie > $newinnie    
             wait
 
-            # Fixing the extra bins if required
-            # Uncomment if you need this logic
-            # finaloutie3="mergedCrush3_""$myres"".bedgraph"
-            # cat $newoutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}' > $finaloutie3
-            # mv $finaloutie3 $newoutie
         fi
-    done
 
+    done
     # Clean up smoothing files if smoothing was applied
     if [ "$smoothing" -lt 1 ]; then
         rm $finalshifter
