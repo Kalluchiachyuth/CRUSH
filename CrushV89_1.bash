@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #CRUSH Script Version
-version=1.0 # A version where EigenVector approach is considered for initialization states and recursive iteration of resolutions is implemented.
+version=1.0 #A version where EigenVector approach is considered for initialization states and recursive iteration of resolutions is implemented.
 
 #Initial variables
 hicpath=0
@@ -638,6 +638,44 @@ run_smoothing() {
     mv shifted_outie "$innieS"
 }
 
+# Function for Savitzky-Golay smoothing
+Savitzky_Golay() {
+    local innieSG=$1
+    local outieSG=$2
+
+    echo "Smoothening function"
+
+    cat << EOF > Savitzky_Golay.py
+import numpy as np
+from scipy.signal import savgol_filter
+import sys
+
+# Input and output files
+inputfile = sys.argv[1]
+outfile = sys.argv[2]
+
+# Load the compartment data
+data = np.loadtxt(inputfile, dtype=str)
+chromosomes = data[:, 0]
+start_positions = data[:, 1].astype(int)
+end_positions = data[:, 2].astype(int)
+scores = data[:, 3].astype(float)
+
+# Apply Savitzky-Golay filter
+window_length = 3  # Choose an odd number
+polyorder = 2  # Polynomial order
+smoothed_scores = savgol_filter(scores, window_length=window_length, polyorder=polyorder)
+
+# Save the smoothed data
+with open(outfile, 'w') as outie:
+    for chrom, start, end, score in zip(chromosomes, start_positions, end_positions, smoothed_scores):
+        outie.write(f"{chrom}\t{start}\t{end}\t{score}\n")
+EOF
+
+    # Execute the Python script
+    python Savitzky_Golay.py "$innieSG" "$outieSG"
+}
+
 # Function to generate A and B compartmental states
 process_oppocheck_statement() {
     local innie_genes="$1"
@@ -713,6 +751,15 @@ process_oppocheck_statement() {
 
         mv $outie2 $outie_oppo
 
+        #amed=`awk '{if ($4 > 0) print $4}' |  awk '{if (NR == 1) geom=$1; else geom=($1*geom)} END {print geom**(1/NR)}'`
+        #bmed=`awk '{if ($4 < 0) print $4*-1}' |  awk '{if (NR == 1) geom=$1; else geom=($1*geom)} END {print geom**(1/NR)}'`
+
+        #wait
+
+        # Adjust values using amed and bmed
+        #cat "$outie_oppo" | mawk -v varA="$amed" -v varB="$bmed" '{ print $1 "\t" $2 "\t" $3 "\t" $4 - (varA - varB) }' > "$outie2"
+        #wait
+        #mv "$outie2" "$outie_oppo"
     fi
 
     if [ "$myres" -ge "$endZ" ]; then
@@ -865,62 +912,47 @@ run_endshifter() {
 
 # Separating out A and B regions from the outiefull and intersecting with the genes and Bbins to improve compartments identification
 separating_ABbins() {
-    # Function that separates the input bins into A and B compartments, and re-evaluates or re-initializes the bins
-    # if the "switch" parameter is set. A compartments are regions with positive scores, and B compartments have negative scores.
+    local separatinginnie=$1
 
-    local separatinginnie=$1  # Input file containing compartment data with scores in the 4th column
+AbinsR=`echo "AbinsfromGI_""$myres"".txt"`
+BbinsR=`echo "BbinsfromGI_""$myres"".txt"`
 
-    # Define file names for storing A and B bins, and intermediate bins during re-evaluation
-    AbinsR=`echo "AbinsfromGI_""$myres"".txt"`          # Output file for storing A bins
-    BbinsR=`echo "BbinsfromGI_""$myres"".txt"`          # Output file for storing B bins
+newBbins=`echo "newBbinsGI_""$myres"".txt"`
+newAbins=`echo "newAbinsGI_""$myres"".txt"`
 
-    newBbins=`echo "newBbinsGI_""$myres"".txt"`         # Output file for storing re-evaluated new B bins
-    newAbins=`echo "newAbinsGI_""$myres"".txt"`         # Output file for storing re-evaluated new A bins
+non_newBbins=`echo "non_newBbinsGI_""$myres"".txt"`
+non_newAbins=`echo "non_newAbinsGI_""$myres"".txt"`
 
-    non_newBbins=`echo "non_newBbinsGI_""$myres"".txt"` # Output file for storing non-overlapping B bins
-    non_newAbins=`echo "non_newAbinsGI_""$myres"".txt"` # Output file for storing non-overlapping A bins
+combined_newBbins=`echo "combined_newBbinsGI_""$myres"".txt"`
+combined_newAbins=`echo "combined_newAbinsGI_""$myres"".txt"`
 
-    combined_newBbins=`echo "combined_newBbinsGI_""$myres"".txt"`  # Combined output of new and non-new B bins
-    combined_newAbins=`echo "combined_newAbinsGI_""$myres"".txt"`  # Combined output of new and non-new A bins
+cat $separatinginnie | awk '{if ($4 > 0) print $0}' > $AbinsR
 
-    # Separate input bins into A and B compartments based on the value in the 4th column
-    # Positive values are assigned to A compartments, and negative values to B compartments
-    cat $separatinginnie | awk '{if ($4 > 0) print $0}' > $AbinsR  # Extract rows with positive values (A bins)
-    cat $separatinginnie | awk '{if ($4 < 0) print $0}' > $BbinsR  # Extract rows with negative values (B bins)
+cat $separatinginnie | awk '{if ($4 < 0) print $0}' > $BbinsR
 
-    # Check if the switch for re-initialization is enabled
-    if [ "$switch" -eq 1 ]; then
-        echo "Re-initialization of Bins is switched ""ON"". Re-evaluating both A and B bins and re-initializing for next resolution."
+if [ "$switch" -eq 1 ]; then
 
-        # Re-initializing B bins: Identify the overlapping regions in B bins
-        # Use intersectBed to find bins in Bbins that overlap with the re-evaluated B bins (BbinsR)
-        cat $Bbins | intersectBed -u -a stdin -b $BbinsR > $newBbins  # $newBbins now has overlapping regions with BbinsR
+    echo "Re-initialization of Bins is switched ""ON"". Re-evaluating both A and B bins and re-initializing for next resolution."
 
-        # Identify non-overlapping B bins in the original Bbins file using awk
-        # If a bin in Bbins is not found in $newBbins, it is added to $non_newBbins
-        awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newBbins $Bbins > $non_newBbins  # Get non-overlapping bins
+    cat $Bbins | intersectBed -u -a stdin -b $BbinsR > $newBbins
 
-        # Combine the newly identified B bins ($newBbins) and the non-overlapping B bins ($non_newBbins)
-        # This creates a complete set of B bins for the current resolution
-        cat $newBbins $non_newBbins > $combined_newBbins
+    awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newBbins $Bbins > $non_newBbins
 
-        # Re-initializing A bins using the genesfile: Identify regions in genesfile that overlap with A bins
-        # intersectBed identifies regions in the genesfile that overlap with the re-evaluated A bins ($AbinsR)
-        cat $genesfile | cut -f 1-3 | intersectBed -u -a stdin -b $AbinsR > $newAbins  # New A bins based on gene regions
+    cat $newBbins $non_newBbins > $combined_newBbins 
 
-        # Identify non-overlapping gene regions that are not in the newly identified A bins ($newAbins)
-        awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newAbins $genesfile > $non_newAbins  # Get non-overlapping gene regions
+    cat $genesfile | cut -f 1-3 | intersectBed -u -a stdin -b $AbinsR > $newAbins
 
-        # Combine the newly identified A bins ($newAbins) and the non-overlapping bins ($non_newAbins)
-        # This creates a complete set of A bins for the current resolution
-        cat $newAbins $non_newAbins > $combined_newAbins
+    awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newAbins $genesfile > $non_newAbins
 
-    else
-        # If re-initialization is not enabled, generate the output without any further re-evaluation
-        echo "Generating the output without re-initialization."
-    fi
+    cat $newAbins $non_newAbins > $combined_newAbins 
+
+else
+
+    echo "Generating the output without re-initialization."
+
+fi
+
 }
-
 
 # Benjamini-Hochberg Function
 BHcorrection() {
@@ -1008,6 +1040,7 @@ process_resolution() {
     fi
 
     # Define output filenames based on resolution
+    outiefull1="Crush1_${myres}.bedgraph"
     outiefull="Crush_${myres}.bedgraph"
 
     echo -e "\nNow dumping reads and calculating initial CRUSH for all chromosomes at $myres"
@@ -1036,6 +1069,7 @@ process_resolution() {
         # Define more temporary filenames
         sortedbed="${tmpfiles}/genebins"
         pseudoB="${tmpfiles}/pseudoB"
+        fakiegenes="${tmpfiles}/fakiegenes"
         dumped="${tmpfiles}/dumped_${myres}_${mychr}_tmp"
 
         # Initialize states and bins
@@ -1172,59 +1206,82 @@ process_resolution() {
 
     wait 
 
-    if [ "$myres" == "$maxres" ]; then 
-        coarse_infile=`echo "GI_""$myres"".bedgraph"`
-        cat $outiefull > $coarse_infile
-    wait
-    fi
+    #Smoothing the outiefull 
+    #Savitzky_Golay $outiefull1 $outiefull
 
-    res_values=`echo "res_values"`
-    echo "$myres" >> $res_values
+    #Setting up for shifter
 
-    # Re-evaluating both A and B bins for re-initialization for next resolution
+    #Setting up for shifter
 
-    if [ "$countres" -gt 0 ]; then
-        # Creating a python output file 
-        python_output=`echo "shifter.bedgraph"`
+if [ "$myres" == "$maxres" ]
+then
+coarse_infile=`echo "GI_""$myres"".bedgraph"`
+cat $outiefull > $coarse_infile
 
-        if [ "$coarse_res" -eq "$maxres" ] && [ "$coarse_res" != "$high_res" ]; then
-            # Shifter Input files for the specified resolutions
-            high_res_infile=`echo "$outiefull"`
-            coarse_res_infile=`echo "$coarse_infile"`
+wait
+fi
 
-        else
-            # Shifter Input files for the specified resolutions
-            high_res_infile=`echo "$outiefull"` 
-            coarse_res_infile=`echo "$python_output"`
-        fi
+res_values=`echo "res_values"`
+echo "$myres" >> $res_values
 
-        # Conditional checking for multiples of resolutions for shifter 
-        # If coarseres is divisible by highres, use these resolutions for shifter as coarse and high
-        if [[ "$(( $coarse_res % $high_res ))" -eq 0 ]]; then
-            crtmp=$coarse_res
-        else
+# Re-evaluating both A and B bins for re-initialization for next resolution
 
-            if [[ "$(( $crtmp % $high_res ))"  -eq 0 ]]; then
-                coarse_res=$crtmp
-            fi
+if [ "$countres" -gt 0 ]
+then
 
-        fi
+# Creating a python output file 
+python_output=`echo "shifter.bedgraph"`
 
-        # Executing the Shifter Python Script
-        run_midshifter $high_res $coarse_res $high_res_infile $coarse_res_infile $python_output
+if [ "$coarse_res" -eq "$maxres" ] && [ "$coarse_res" != "$high_res" ]
+then
 
-        #Adding this to check python output
-        echo "Resolution: "$myres" for shifter output"
+# Shifter Input files for the specified resolutions
+high_res_infile=`echo "$outiefull"`
+coarse_res_infile=`echo "$coarse_infile"`
 
-        #Separating A/B bins using Shifter python output
-        separating_ABbins $python_output
+else
+# Shifter Input files for the specified resolutions
+high_res_infile=`echo "$outiefull"` 
+coarse_res_infile=`echo "$python_output"`
 
-        # Update coarse and high resolutions
-        coarse_res=$high_res
-    else
-        #Separating A/B bins using Resolution based Output
-        separating_ABbins $outiefull
-    fi
+fi
+
+# Conditional checking for multiples of resolutions for shifter 
+# If coarseres is divisible by highres, use these resolutions for shifter as coarse and high
+if [[ "$(( $coarse_res % $high_res ))" -eq 0 ]]
+then
+
+crtmp=$coarse_res
+
+else
+
+if [[ "$(( $crtmp % $high_res ))"  -eq 0 ]]
+then
+
+coarse_res=$crtmp
+
+fi
+
+fi
+
+# Executing the Shifter Python Script
+run_midshifter $high_res $coarse_res $high_res_infile $coarse_res_infile $python_output
+
+#Adding this to check python output
+echo "Resolution: "$myres" for shifter output"
+
+#Separating A/B bins using Shifter python output
+separating_ABbins $python_output
+
+# Update coarse and high resolutions
+coarse_res=$high_res
+
+else
+
+#Separating A/B bins using Resolution based Output
+separating_ABbins $outiefull
+
+fi
 
     wait
 
@@ -1253,7 +1310,9 @@ reprocess_resolutions_with_shifter() {
 
         highres_reprocess=$prev_res
 
-        local outiefull_reprocess=`echo "Crush_Re_""$prev_res"".bedgraph"`
+        local outiefull_reprocess1=`echo "Crush_reprocess1_""$prev_res"".bedgraph"`
+        local outiefull_reprocess=`echo "Crush_reprocess_""$prev_res"".bedgraph"`
+        local outiefullPval_reprocess=`echo "pvalues_reprocess_""$prev_res"".bedgraph"`
 
         # Loop through each chromosome
         local chromosomes=($(cut -f1 $sizefile))
@@ -1291,15 +1350,19 @@ reprocess_resolutions_with_shifter() {
 
         # Merge the reprocessed CRUSH files
         echo -ne "Merging individual chromosome files\033[0K\r"
-        cat Crush_reprocess_${prev_res}_*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefull_reprocess
+        cat Crush_reprocess_${prev_res}*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefull_reprocess
+
+        #Smoothing the outiefull 
+        #Savitzky_Golay $outiefull_reprocess1 $outiefull_reprocess
 
         if [ $prev_res -eq $minres ] && [ $pcalculation -gt 0 ]; then
         
-            outiefullPval_reprocess="pvalues_Re_${prev_res}.bedgraph"
+            outiefullPval_reprocess="pvalues_reprocess_${prev_res}.bedgraph"
             echo "Resolution: $prev_res for Resolution output and minres is : $minres"
             cat ttest_reprocess*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefullPval_reprocess
             wait 
         fi
+
 
         if [ "$prev_res" == "$maxres" ]; then
 
@@ -1332,11 +1395,17 @@ reprocess_resolutions_with_shifter() {
             # Conditional checking for multiples of resolutions for shifter 
             # If coarseres is divisible by highres, use these resolutions for shifter as coarse and high
             if [[ "$(( $coarse_res_reprocess % $highres_reprocess ))" -eq 0 ]]; then
+
                 crtmp_reprocess=$coarse_res_reprocess
+
             else
+
                 if [[ "$(( $crtmp_reprocess % $highres_reprocess ))"  -eq 0 ]]; then
-                    coarse_res_reprocess=$crtmp_reprocess
+
+                coarse_res_reprocess=$crtmp_reprocess
+
                 fi
+
             fi
 
             if [ -f "$highres_infile_reprocess" ] && [ -f "$coarse_res_infile_reprocess" ]; then
@@ -1360,12 +1429,16 @@ reprocess_resolutions_with_shifter() {
 
             # Update coarse and high resolutions
             coarse_res_reprocess=$highres_reprocess
+
         else
             #Separating A/B bins using Resolution based Output
             separating_ABbins $outiefull_reprocess
+
         fi
+    
     done
 }
+
 
 #The show unfolds from here:
 
@@ -1375,8 +1448,9 @@ mkdir $crushdir
 cd $crushdir
 
 # Reading Resolutions
-if [ $juiceorcool -eq 0 ]; then
-    cat << EOF > listres.py
+if [ $juiceorcool -eq 0 ]
+then
+cat << EOF > listres.py
 import hicstraw
 hic = hicstraw.HiCFile("$hicpath")
 totres=hic.getResolutions()
@@ -1405,9 +1479,10 @@ echo "sizes-file: $sizefile"
 
 # Check sizefile
 numcolumns=`mawk '{if (NF != 2) print $0}' $sizefile | wc -l`
-if [ "$numcolumns" -gt 0 ]; then
-    echo "size file is incorrect format. It should be two columns with chromosome name and size"
-    exit 0
+if [ "$numcolumns" -gt 0 ]
+then
+echo "size file is incorrect format. It should be two columns with chromosome name and size"
+exit 0
 fi
 
 totchroms=`cat $sizefile | wc -l`
@@ -1455,12 +1530,14 @@ if [ $isfasta == "1" ]; then
     cat $gc_g_ga | awk -v thresh=$gc_thresh '{if ($7 < thresh) print $0}' > $Bbins
     wait
     echo "Finished generating Bbins file for all chromosomes "
+
 else
     cat $fastafile > $Bbins
 fi
 
-if [ $endZ == 0 ]; then
-    endZ=`echo "$minres"`
+if [ $endZ == 0 ]
+then
+endZ=`echo "$minres"`
 fi
 
 # Here is where I am running Eigen Block after reslist
@@ -1470,7 +1547,7 @@ EVBstates="EVBstates.bed"
 
 if [ -n "$eigenfile" ]; then
     echo "Using user-provided Eigen Vector file: $eigenfile"
-
+    
     # Correct the awk commands to ensure they process the file correctly
     awk '{if ($4 > 0) print $0}' "$eigenfile" > "$EVAstates"
     if [ $? -ne 0 ]; then
@@ -1502,6 +1579,7 @@ else
 
     # Default behavior when no eigenfile is provided
     for chrom in $(cut -f 1 $sizefile); do
+        
         genesbinned="genesbinned.bed"
         gcbinned="gcbinned.bed"
 
@@ -1544,17 +1622,18 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
     if [ $i -gt 0 ]; then
         reprocess_resolutions_with_shifter $myres $i 1
 
-        # Final Processing of bedgraphs
+        #Final Processing of bedgraphs
+
         finaloutie=`echo "$outpre""mergedCrush_""$myres"".bedgraph"`     
         Crush_todelete=`echo "Crush_todelete_""$myres""_reprocess"`
 
         finalpoutie=`echo "$outpre""mergedqvalue_""$myres"".bedgraph"`
         pval_todelete=`echo "pval_todelete_""$myres""_reprocess"`
 
-        cat Crush_Re*.bedgraph | mawk -v minr=$myres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4/int($3-$2)}' | mawk -v mr=$myres '{for (i=$2;i<$3;i++) print $1":"int(i)*mr":"(int(i)+1)*mr"\t"$4}' | mawk '{c1[$1] += $2; c2[$1]++} END {for (i in c1) print i"\t"c1[i]/c2[i]}' | sed 's/:/\t/g' > $finaloutie 2> smallerrors
+        cat Crush_reprocess*.bedgraph | mawk -v minr=$myres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4/int($3-$2)}' | mawk -v mr=$myres '{for (i=$2;i<$3;i++) print $1":"int(i)*mr":"(int(i)+1)*mr"\t"$4}' | mawk '{c1[$1] += $2; c2[$1]++} END {for (i in c1) print i"\t"c1[i]/c2[i]}' | sed 's/:/\t/g' > $finaloutie 2> smallerrors
         
         if [ $myres -eq $minres ]; then
-            cat pvalues_Re*.bedgraph | mawk -v minr=$myres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4}' | mawk -v mr=$myres '{for (i=$2;i<$3;i++) print $1":"int(i)*mr":"(int(i)+1)*mr"\t"$4}' | awk '{c1[$1] += log($2)/log(10); c2[$1]++} END {for (i in c1) print i"\t"10**(c1[i]/c2[i])}' | sed 's/:/\t/g' | sort -k 1,1 -V -k 2bn,2b --stable > $finalpoutie 2> smallerrors
+            cat pvalues_reprocess*.bedgraph | mawk -v minr=$myres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4}' | mawk -v mr=$myres '{for (i=$2;i<$3;i++) print $1":"int(i)*mr":"(int(i)+1)*mr"\t"$4}' | awk '{c1[$1] += log($2)/log(10); c2[$1]++} END {for (i in c1) print i"\t"10**(c1[i]/c2[i])}' | sed 's/:/\t/g' | sort -k 1,1 -V -k 2bn,2b --stable > $finalpoutie 2> smallerrors
         fi
 
         echo "Running BH correction"
@@ -1568,7 +1647,7 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
         if [ $(bc <<< "$qthresh > 0") -eq 1 ]
         then
 
-        finaloutiefilt=`echo "$outpre""mergedCrush_""$myres""_qfiltered_Re.bedgraph"`
+        finaloutiefilt=`echo "$outpre""mergedCrush_""$myres""_qfiltered_reprocess.bedgraph"`
         filt_todelete=`echo "tmpcrushfiltered_""$myres""_reprocess"`
 
         mawk -v fdr=$qthresh -v var=$GIave 'NR==FNR {a[$1":"$2":"$3] = $4; next} {if (a[$1":"$2":"$3] <= fdr) print $1"\t"$2"\t"$3"\t"$4/(var/100)}'  $finalpoutie $finaloutie> $finaloutiefilt
@@ -1602,50 +1681,32 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
 
         fi
 
-        ## Refixing the extra bins and final output processing
-        sizeBed="Chrsizes.bed"                        # Define the size bed file name
-        finaloutie2="mergedCrush2_${myres}.bedgraph"  # Define the intermediate output file
+        ## Refixing the extra bins
+        # Creating a size bed file
+        sizeBed=`echo "Chrsizes.bed"`
+        finaloutie2=`echo "mergedCrush2_""$myres"".bedgraph"`
 
-        # Create a chromosome sizes bed file (only if it doesn't already exist)
-        awk '{print $1"\t1\t"$2}' $sizefile > $sizeBed
+        cat $sizefile | awk '{print $1"\t""1""\t"$2}' > $sizeBed
 
-        # Filter and reformat the final output file based on chromosome size
-        cat $finaloutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | \
-            awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | \
-            mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' > $finaloutie2
-
-        # Replace the original output file with the updated one
+        cat $finaloutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $finaloutie2
         mv $finaloutie2 $finaloutie
 
-        # Apply smoothing if required
-        if [ "$smoothing" -lt 1 ]; then
-            echo "Smoothing Function is turned on"
-            smoother="smoother.bedgraph"
-            run_smoothing $newoutie $smoother
-            rm $smoother tmp2_shiftedleft tmp1_shiftedright  # Clean up smoothing-related temporary files
+        if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then 
+            cat $finaloutiefilt | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}'> $filt_todelete
+            wait
+            mv $filt_todelete $finaloutiefilt
+            mv $finalpoutie ../
         fi
 
-        # Perform final q-value filtering and apply track formatting if conditions are met
-        if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then
-            filt_todelete="filtered_${myres}.bedgraph"  # Create a temporary filtered file
-
-            # Perform intersection with sizeBed and format for visualization
-            cat $finaloutiefilt | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | \
-                awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | \
-                mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' > $filt_todelete
-
-            mv $filt_todelete $finaloutiefilt   # Move the temporary filtered file to the final filtered output
-            mv $finalpoutie ../                 # Move the p-value output to the parent directory
-        fi
-
-        # Move final outputs to the parent directory
         mv $finaloutie ../
-        
+
         if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then
             mv $finaloutiefilt ../
         fi
+
     fi
 done
+
 
 if [ $doNotMerge -eq 1 ]; then
     echo "Finished with each resolution listed, but not merging...."
@@ -1709,8 +1770,8 @@ if [ "$reshift" -gt 0 ]; then
             # Check and run smoothing if required
             if [ "$smoothing" -lt 1 ]; then
                 echo "Smoothing Function is turned on"
-                smoother="smoother.bedgraph"
-                run_smoothing $newoutie $smoother
+                finalshifter="finalshifter.bedgraph"
+                run_smoothing $newoutie $finalshifter
             fi 
 
             # Updating the resolution
@@ -1725,16 +1786,15 @@ if [ "$reshift" -gt 0 ]; then
         fi
 
     done
-
     # Clean up smoothing files if smoothing was applied
     if [ "$smoothing" -lt 1 ]; then
-        rm $smoother
+        rm $finalshifter
         rm tmp2_shiftedleft
         rm tmp1_shiftedright
     fi 
 
     # Optionally clean up merged bedgraphs
-    #rm mergedCrush2_*.bedgraph
+    # rm mergedCrush2_*.bedgraph
 
 fi
 
