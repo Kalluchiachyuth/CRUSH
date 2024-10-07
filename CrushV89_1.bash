@@ -1254,7 +1254,6 @@ reprocess_resolutions_with_shifter() {
         highres_reprocess=$prev_res
 
         local outiefull_reprocess=`echo "Crush_Re_""$prev_res"".bedgraph"`
-        local outiefullPval_reprocess=`echo "pvalues_Re_""$prev_res"".bedgraph"`
 
         # Loop through each chromosome
         local chromosomes=($(cut -f1 $sizefile))
@@ -1296,7 +1295,7 @@ reprocess_resolutions_with_shifter() {
 
         if [ $prev_res -eq $minres ] && [ $pcalculation -gt 0 ]; then
         
-            outiefullPval_reprocess="pvalues_reprocess_${prev_res}.bedgraph"
+            outiefullPval_reprocess="pvalues_Re_${prev_res}.bedgraph"
             echo "Resolution: $prev_res for Resolution output and minres is : $minres"
             cat ttest_reprocess*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefullPval_reprocess
             wait 
@@ -1735,7 +1734,7 @@ if [ "$reshift" -gt 0 ]; then
     fi 
 
     # Optionally clean up merged bedgraphs
-    rm mergedCrush2_*.bedgraph
+    #rm mergedCrush2_*.bedgraph
 
 fi
 
