@@ -1350,7 +1350,7 @@ reprocess_resolutions_with_shifter() {
 
         # Merge the reprocessed CRUSH files
         echo -ne "Merging individual chromosome files\033[0K\r"
-        cat Crush_reprocess_${prev_res}*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefull_reprocess
+        cat Crush_reprocess_${prev_res}_*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefull_reprocess
 
         #Smoothing the outiefull 
         #Savitzky_Golay $outiefull_reprocess1 $outiefull_reprocess
