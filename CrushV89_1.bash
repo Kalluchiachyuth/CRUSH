@@ -1604,6 +1604,7 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
         fi
 
         if [ $trackline -gt 0 ] && [ $(bc <<< "$qthresh > 0") -eq 1 ]; then
+            filt_todelete=`echo "tmpcrushfiltered_""$myres""_reprocess"`
             cat $finaloutiefilt | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20,20 autoScale off\n"$0; else print $0}' > $filt_todelete
             wait
 
@@ -1743,10 +1744,10 @@ if [ "$reshift" -gt 0 ]; then
     fi 
 
     # Optionally clean up merged bedgraphs
-    # rm mergedCrush2_*.bedgraph
+    rm mergedCrush2_*.bedgraph
 
 fi
 
 echo "Finished! Check the output."
-echo -e "Note: Please keep in mind that we are using resolution walking.\nIf the coarsest resolution doesn't match the compartment pattern at that resolution, please consider re-running with the -m parameter set to start the walking with smaller bins."
+echo -e "Note: Please keep in mind that we are using resolution walking using Eigenvector calculated at $eigenres.\nIf the coarsest resolution doesn't match the compartment pattern at that resolution, please consider re-running with the -m parameter set to start the walking with smaller bins."
 
