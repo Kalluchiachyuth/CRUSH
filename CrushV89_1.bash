@@ -127,7 +127,7 @@ function help {
     echo "-S|--switch              :  Set this option to 0 for bypassing re-initialization. Default is 1."  
     echo "-N|--norm                :  Set the normalization scheme to use. Options are NONE, VC, VC_SQRT, KR, SCALE. Default is NONE."
     echo "-C|--cleanup             :  Set the value for cleanup"
-    echo "-E|--endZ                :  Set the value for endZ"
+    echo "-Z|--endZ                :  Set the value for endZ"
     echo "-x|--exclbed             :  Set the value for exclbed"
     echo "-p|--pcalculation        :  Set this option to 0 for bypassing pvalue calculation. Default is 1."
     echo "-q|--qvalue              :  Set the qvalue threshold. default 0.05. Set to 0 to not perform qvalue filtering. The qvalues will be reported as a separate track regardelss."
@@ -254,7 +254,7 @@ while test $# -gt 0; do
         -C|--cleanup)
             cleanup=$2
             ;;
-        -E|--endZ)
+        -Z|--endZ)
             endZ=$2
             ;;
         -m|--maxres)
@@ -383,7 +383,7 @@ process_genes_Bbins() {
         cat $EVAstates | mawk -v myres=$maxres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$maxres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
 
         # Bbins
-        cat $EVBstates |  mawk -v myres=$maxres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$maxres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $pseudoB
+        cat $EVBstates | mawk -v myres=$maxres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$maxres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $pseudoB
 
     elif [ "$switch" -lt 1 ]; then
 
@@ -391,7 +391,7 @@ process_genes_Bbins() {
         cat $EVAstates | mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
 
         # Bbins
-        cat $EVBstates | mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
+        cat $EVBstates | mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $pseudoB
 
     else  
 
@@ -401,7 +401,7 @@ process_genes_Bbins() {
         cat $combined_newAbins | mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
 
         # Bbins
-        cat $combined_newBbins |  mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $pseudoB
+        cat $combined_newBbins | mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $pseudoB
 
     fi
 
@@ -1573,15 +1573,26 @@ else
 
     # Default behavior when no eigenfile is provided
     for chrom in $(cut -f 1 $sizefile); do
-        
+
         genesbinned="genesbinned.bed"
         gcbinned="gcbinned.bed"
 
-        cat $genesfile | mawk -v myres=100000 -v mychr=$chrom '{if ($1 == mychr) print $1 "\t" int($2/myres)*myres "\t" int($3/myres)*myres}' > $genesbinned
-        cat $Bbins | mawk -v myres=100000 -v mychr=$chrom '{if ($1 == mychr) print $1 "\t" int($2/myres)*myres "\t" int($3/myres)*myres}' > $gcbinned
+        # Check if eigenres is provided; otherwise, default to 100000
+        if [ -n "$eigenres" ] && [ "$eigenres" -gt 0 ]; then
+            echo "Using user-defined eigen resolution: $eigenres"
+            myres=$eigenres
+        else
+            echo "No eigen resolution provided. Using default: 100000"
+            myres=100000
+        fi
 
-        generateEV "$hicpath" "$chrom" "$eigenres" "$genesbinned" "$gcbinned" "$chrom_size"
-    
+        # Bin genes and B bins based on the chosen resolution
+        mawk -v myres="$myres" -v mychr="$chrom" '{if ($1 == mychr) print $1 "\t" int($2/myres)*myres "\t" int($3/myres)*myres}' "$genesfile" > "$genesbinned"
+        mawk -v myres="$myres" -v mychr="$chrom" '{if ($1 == mychr) print $1 "\t" int($2/myres)*myres "\t" int($3/myres)*myres}' "$Bbins" > "$gcbinned"
+
+        # Call generateEV function with required parameters
+        generateEV "$hicpath" "$chrom" "$myres" "$genesbinned" "$gcbinned" "$chrom_size"
+
     done
 
     # Concatenate best eigenvectors for full genome BEDGraph
