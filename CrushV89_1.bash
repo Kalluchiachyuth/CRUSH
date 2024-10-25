@@ -140,6 +140,18 @@ function help {
     # Add more options here if needed
 }
 
+# Modified URL validation function
+validate_url() {
+    local url=$1
+    if ! command -v curl &> /dev/null; then
+        echo "Error: curl is not installed. Please install curl to validate remote files."
+        exit 1
+    fi
+    
+    curl --output /dev/null --silent --head --fail "$url"
+    return $?
+}
+
 # Parsing command line arguments
 while test $# -gt 0; do
     case "$1" in
@@ -148,7 +160,29 @@ while test $# -gt 0; do
             exit 0
             ;;
         -i|--hic)
-            hicpath=`readlink -e $2`
+            shift  # Move to the next argument which contains the actual path
+            if [ $# -eq 0 ]; then
+                echo "Error: No file specified after -i|--hic"
+                exit 1
+            fi
+            hicpath="$1"
+            # Check if it's a URL or local file
+            if [[ "$hicpath" =~ ^https?:// ]]; then
+                # Validate URL
+                if ! validate_url "$hicpath"; then
+                    echo "Error: Unable to access URL: $hicpath"
+                    exit 1
+                fi
+                echo "Using remote file: $hicpath"
+            else
+                # Check if it's a valid local file
+                if [[ ! -f "$hicpath" ]]; then
+                    echo "Error: Local file not found: $hicpath"
+                    exit 1
+                fi
+                hicpath=$(readlink -e "$hicpath")
+                echo "Using local file: $hicpath"
+            fi
             ;;
         -o|--outpre)
             outpre=$2
@@ -243,9 +277,24 @@ while test $# -gt 0; do
 done
 
 # Check if required arguments are provided
-if [ $hicpath == 0 ]; then
-    echo "You must specify a .hic file!......"
-    exit 0
+if [[ -z "$hicpath" ]]; then
+    echo "You must specify a .hic or .mcool file! (local file or HTTPS link)"
+    exit 1
+fi
+
+# Check file extension and URL format
+if [[ "$hicpath" =~ ^https?:// ]]; then
+    # For URLs, check if they end with .hic or .mcool
+    if [[ ! "$hicpath" =~ \.(hic|mcool)$ ]]; then
+        echo "Error: URL must point to a .hic or .mcool file"
+        exit 1
+    fi
+else
+    # For local files, check if they exist and have the right extension
+    if [[ ! -f "$hicpath" ]] || [[ ! "$hicpath" =~ \.(hic|mcool)$ ]]; then
+        echo "Error: Input must be a valid .hic or .mcool file"
+        exit 1
+    fi
 fi
 
 if [ $res == 0 ]; then
