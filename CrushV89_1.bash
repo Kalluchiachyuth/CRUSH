@@ -140,6 +140,18 @@ function help {
     # Add more options here if needed
 }
 
+# Modified URL validation function
+validate_url() {
+    local url=$1
+    if ! command -v curl &> /dev/null; then
+        echo "Error: curl is not installed. Please install curl to validate remote files."
+        exit 1
+    fi
+    
+    curl --output /dev/null --silent --head --fail "$url"
+    return $?
+}
+
 # Parsing command line arguments
 while test $# -gt 0; do
     case "$1" in
@@ -148,7 +160,29 @@ while test $# -gt 0; do
             exit 0
             ;;
         -i|--hic)
-            hicpath=`readlink -e $2`
+            shift  # Move to the next argument which contains the actual path
+            if [ $# -eq 0 ]; then
+                echo "Error: No file specified after -i|--hic"
+                exit 1
+            fi
+            hicpath="$1"
+            # Check if it's a URL or local file
+            if [[ "$hicpath" =~ ^https?:// ]]; then
+                # Validate URL
+                if ! validate_url "$hicpath"; then
+                    echo "Error: Unable to access URL: $hicpath"
+                    exit 1
+                fi
+                echo "Using remote file: $hicpath"
+            else
+                # Check if it's a valid local file
+                if [[ ! -f "$hicpath" ]]; then
+                    echo "Error: Local file not found: $hicpath"
+                    exit 1
+                fi
+                hicpath=$(readlink -e "$hicpath")
+                echo "Using local file: $hicpath"
+            fi
             ;;
         -o|--outpre)
             outpre=$2
@@ -243,9 +277,24 @@ while test $# -gt 0; do
 done
 
 # Check if required arguments are provided
-if [ $hicpath == 0 ]; then
-    echo "You must specify a .hic file!......"
-    exit 0
+if [[ -z "$hicpath" ]]; then
+    echo "You must specify a .hic or .mcool file! (local file or HTTPS link)"
+    exit 1
+fi
+
+# Check file extension and URL format
+if [[ "$hicpath" =~ ^https?:// ]]; then
+    # For URLs, check if they end with .hic or .mcool
+    if [[ ! "$hicpath" =~ \.(hic|mcool)$ ]]; then
+        echo "Error: URL must point to a .hic or .mcool file"
+        exit 1
+    fi
+else
+    # For local files, check if they exist and have the right extension
+    if [[ ! -f "$hicpath" ]] || [[ ! "$hicpath" =~ \.(hic|mcool)$ ]]; then
+        echo "Error: Input must be a valid .hic or .mcool file"
+        exit 1
+    fi
 fi
 
 if [ $res == 0 ]; then
@@ -480,110 +529,103 @@ find_best_pc() {
     local gc_file="$4"
     local chrom_size="$5"
     local best_pc=""
-    local best_corr=-100  # Start with a low correlation value
+    local best_corr=-100
     local log_file="correlation_log_${chrom}_${res}.txt"
 
-    echo "Calculating best PC for $chrom at resolution $res..." > "$log_file"
+    echo "Calculating best PC for chromosome $chrom at resolution $res..." > "$log_file"
 
-    # Calculate bin size and initialize arrays for gene and GC densities
+    # Get total number of bins
     local bin_size=$res
     local num_bins=$((chrom_size / bin_size))
 
     # Function to calculate density
     calculate_density() {
         local feature_file="$1"
-        local chrom="$2"
-        local bin_size="$3"
-        local chrom_size="$4"
-
-        # Initialize densities array
-        declare -a density
-        for ((i=0; i<num_bins; i++)); do
-            density[$i]=0
-        done
-
-        # Calculate density
         awk -v bin_size="$bin_size" -v chrom="$chrom" '
-        BEGIN {
-            OFS = "\t"
-        }
-        $1 == chrom {
+        BEGIN { OFS="\t"; for (i = 0; i < ENVIRON["num_bins"]; i++) density[i] = 0 }
+        $1 == chrom && $2 >= 0 && $3 >= 0 {
             bin_start = int($2 / bin_size)
             bin_end = int($3 / bin_size)
             for (i = bin_start; i <= bin_end; i++) {
-                density[i]++
+                if (i < ENVIRON["num_bins"]) density[i]++
             }
         }
-        END {
-            for (i in density) print density[i]
-        }
+        END { for (i = 0; i < ENVIRON["num_bins"]; i++) print density[i] }
         ' "$feature_file"
     }
 
-    # Calculate gene and GC densities
-    gene_density=($(calculate_density "$genes_file" "$chrom" "$bin_size" "$chrom_size"))
-    gc_density=($(calculate_density "$gc_file" "$chrom" "$bin_size" "$chrom_size"))
+    export num_bins=$num_bins
+    local gene_density=($(calculate_density "$genes_file"))
+    local gc_density=($(calculate_density "$gc_file"))
 
     # Iterate over each PC file
-    for pc_file in PC*_${chrom}_${res}.bedgraph; do
-        echo "Processing $pc_file..." >> "$log_file"
+    for pc_file in PC*_"${chrom}"_"${res}".bedgraph; do
+        if [[ ! -s "$pc_file" ]]; then
+            echo "Skipping empty or missing PC file: $pc_file" >> "$log_file"
+            continue
+        fi
 
-        # Extract PC values and bin them
+        # Extract PC values
         local pc_values=($(awk -v bin_size="$bin_size" -v num_bins="$num_bins" '
-        BEGIN {
-            for (i = 0; i < num_bins; i++) pc[i] = 0
-        }
-        {
-            bin = int($2 / bin_size)
-            if (bin < num_bins) {
-                pc[bin] = $4
-            }
-        }
-        END {
-            for (i = 0; i < num_bins; i++) print pc[i]
-        }
-        ' "$pc_file"))
+        BEGIN { for (i = 0; i < num_bins; i++) pc[i] = 0 }
+        { bin = int($2 / bin_size); if (bin < num_bins) pc[bin] = $4 }
+        END { for (i = 0; i < num_bins; i++) print pc[i] }' "$pc_file"))
 
-        # Convert arrays to comma-separated strings for Python
-        gene_density_str=$(IFS=,; echo "${gene_density[*]}")
-        gc_density_str=$(IFS=,; echo "${gc_density[*]}")
-        pc_values_str=$(IFS=,; echo "${pc_values[*]}")
+        if [[ ${#pc_values[@]} -eq 0 ]]; then
+            echo "No valid data in $pc_file" >> "$log_file"
+            continue
+        fi
 
-        # Calculate Pearson correlations using Python
+        # Convert arrays to strings for Python
+        local gene_density_str=$(IFS=,; echo "${gene_density[*]}")
+        local gc_density_str=$(IFS=,; echo "${gc_density[*]}")
+        local pc_values_str=$(IFS=,; echo "${pc_values[*]}")
+
+        # Calculate correlations
         read -r gene_corr gc_corr <<< $(python3 - <<EOF
 import numpy as np
 from scipy.stats import pearsonr
 
-pc_values = np.array([${pc_values_str}])
-gene_density = np.array([${gene_density_str}])
-gc_density = np.array([${gc_density_str}])
+try:
+    pc_values = np.array([${pc_values_str}])
+    gene_density = np.array([${gene_density_str}])
+    gc_density = np.array([${gc_density_str}])
 
-gene_corr, _ = pearsonr(pc_values, gene_density)
-gc_corr, _ = pearsonr(pc_values, gc_density)
+    gene_corr, _ = pearsonr(pc_values, gene_density)
+    gc_corr, _ = pearsonr(pc_values, gc_density)
 
-print(gene_corr, gc_corr)
+    print(gene_corr, gc_corr)
+except Exception as e:
+    print(0, 0)
 EOF
 )
+
+        # Handle invalid correlations
+        if [[ -z "$gene_corr" || -z "$gc_corr" || "$gene_corr" == "0" && "$gc_corr" == "0" ]]; then
+            echo "Skipping $pc_file: Invalid correlations (gene_corr=$gene_corr, gc_corr=$gc_corr)" >> "$log_file"
+            continue
+        fi
 
         # Calculate total correlation
         local total_corr=$(echo "$gene_corr - $gc_corr" | bc -l)
 
-        echo "PC file: $pc_file, Gene correlation: $gene_corr, GC correlation: $gc_corr, Total correlation: $total_corr" >> "$log_file"
-
-        # Update the best PC if the current one has a higher total correlation
+        # Update best PC
         if (( $(echo "$total_corr > $best_corr" | bc -l) )); then
             best_pc="$pc_file"
             best_corr="$total_corr"
-            echo "New best PC: $best_pc with total correlation $best_corr" >> "$log_file"
+            echo "New best PC: $pc_file with total correlation: $total_corr" >> "$log_file"
         fi
     done
 
-    echo "Best PC for $chrom at resolution $res: $best_pc with total correlation $best_corr" >> "$log_file"
-    echo "Correlation calculation completed. See $log_file for details."
-
-    # Copy the best PC file to a common directory with a new name for later concatenation
-    cp "$best_pc" "best_Eigen_${chrom}_${res}.bedgraph"
+    # Copy the best PC to a new file
+    if [[ -n "$best_pc" ]]; then
+        cp "$best_pc" "best_Eigen_${chrom}_${res}.bedgraph"
+        echo "Best PC for chromosome $chrom: $best_pc with correlation: $best_corr"
+    else
+        echo "No best PC identified for chromosome $chrom at resolution $res." >> "$log_file"
+    fi
 }
+
 
 # Function to run the Eigen related commands
 generateEV() {
@@ -616,7 +658,7 @@ generateEV() {
 
 concatenate_best_pcs() {
     echo "Concatenating the best eigenvectors for all chromosomes into a full genome file."
-    cat best_Eigen_*_{$res}.bedgraph > EV_full_genome.bedgraph
+    cat best_Eigen_*.bedgraph > EV_full_genome.bedgraph
     echo "Concatenation completed. Full genome eigenvector file: EV_full_genome.bedgraph"
 }
 
@@ -1503,59 +1545,97 @@ if [ $endZ == 0 ]; then
     endZ=`echo "$minres"`
 fi
 
-# Here is where I am running Eigen Block after reslist
-
+# Eigen Vector Block After Reslist
 EVAstates="EVAstates.bed"
 EVBstates="EVBstates.bed"
 
+process_eigenvector_file() {
+    local eigenfile="$1"
+    local output_positive="$2"
+    local output_negative="$3"
+
+    # Process positive eigenvalues
+    awk '{if ($4 > 0) print $0}' "$eigenfile" > "$output_positive"
+    if [ $? -ne 0 ]; then
+        echo "Error creating $output_positive from $eigenfile. Please check the awk command."
+        exit 1
+    fi
+
+    # Process negative eigenvalues
+    awk '{if ($4 < 0) print $0}' "$eigenfile" > "$output_negative"
+    if [ $? -ne 0 ]; then
+        echo "Error creating $output_negative from $eigenfile. Please check the awk command."
+        exit 1
+    fi
+
+    # Verify that both files are created and not empty
+    if [ ! -s "$output_positive" ]; then
+        echo "Error: $output_positive is empty or not created."
+        exit 1
+    fi
+    if [ ! -s "$output_negative" ]; then
+        echo "Error: $output_negative is empty or not created."
+        exit 1
+    fi
+
+    echo "Eigen Vector files created successfully: $output_positive, $output_negative"
+}
+
+# Handle user-provided eigenfile
 if [ -n "$eigenfile" ]; then
     echo "Using user-provided Eigen Vector file: $eigenfile"
-    
-    # Correct the awk commands to ensure they process the file correctly
-    awk '{if ($4 > 0) print $0}' "$eigenfile" > "$EVAstates"
-    if [ $? -ne 0 ]; then
-        echo "Error creating EVAstates from eigenfile. Please check the awk command."
-        exit 1
-    fi
-
-    awk '{if ($4 < 0) print $0}' "$eigenfile" > "$EVBstates"
-    if [ $? -ne 0 ]; then
-        echo "Error creating EVBstates from eigenfile. Please check the awk command."
-        exit 1
-    fi
-
-    # Check if files are created
-    if [ ! -s "$EVAstates" ]; then
-        echo "Error: EVAstates is empty or not created."
-        exit 1
-    fi
-
-    if [ ! -s "$EVBstates" ]; then
-        echo "Error: EVBstates is empty or not created."
-        exit 1
-    fi
-
-    echo "Eigen Vector files created successfully: $EVAstates, $EVBstates"
+    process_eigenvector_file "$eigenfile" "$EVAstates" "$EVBstates"
 else
+    echo "No user-provided Eigen Vector file. Preprocessing binned files for all chromosomes at resolution $eigenres."
 
-    echo "No user-provided Eigen Vector file. Generating Eigen Vectors using run_EigenVector script."
+    gcbinned="gcbinned_all.bed"
+
+    # Generate binned GC content file for all chromosomes
+    awk -v res=$eigenres -v chr_size_file=$sizefile '
+    BEGIN { OFS="\t"; while ((getline < chr_size_file) > 0) sizes[$1] = $2 }
+    $1 in sizes && $2 >= 0 && $3 >= 0 {
+        start = int($2 / res) * res
+        end = int($3 / res) * res
+        if (end > sizes[$1]) end = sizes[$1]
+        if (start < sizes[$1]) print $1, start, end
+    }' "$Bbins" > "$gcbinned"
+
+    # Verify the files are created and not empty
+    if [[ ! -s $gcbinned ]]; then
+        echo "Error: One or both of the preprocessed binned files are empty. Exiting..."
+        exit 1
+    fi
+
+    echo "Binned files generated for all chromosomes: $genesbinned, $gcbinned."
 
     # Default behavior when no eigenfile is provided
     for chrom in $(cut -f 1 $sizefile); do
-        
-        genesbinned="genesbinned.bed"
-        gcbinned="gcbinned.bed"
+        chrom_size=$(awk -v chr="$chrom" '$1 == chr {print $2}' "$sizefile")
+        if [ -z "$chrom_size" ]; then
+            echo "Error: Chromosome size for $chrom not found in $sizefile. Skipping..."
+            continue
+        fi
 
-        cat $genesfile | mawk -v myres=$eigenres -v mychr=$chrom '{if ($1 == mychr) print $1 "\t" int($2/myres)*myres "\t" int($3/myres)*myres}' > $genesbinned
-        cat $Bbins | mawk -v myres=$eigenres -v mychr=$chrom '{if ($1 == mychr) print $1 "\t" int($2/myres)*myres "\t" int($3/myres)*myres}' > $gcbinned
+        # Filter out binned data for the current chromosome
+        gcbinned_chr="gcbinned_${chrom}.bed"
 
-        generateEV "$hicpath" "$chrom" "$eigenres" "$genesbinned" "$gcbinned" "$sizefile"
-    
+        awk -v chr=$chrom '$1 == chr' "$gcbinned" > "$gcbinned_chr"
+
+        if [[ ! -s $gcbinned_chr ]]; then
+            echo "Error: Binned files for chromosome $chrom are empty. Skipping..."
+            continue
+        fi
+
+        generateEV "$hicpath" "$chrom" "$eigenres" "$genesfile" "$gcbinned_chr" "$chrom_size"
     done
 
     # Concatenate best eigenvectors for full genome BEDGraph
     concatenate_best_pcs
+
+    process_eigenvector_file "EV_full_genome.bedgraph" "$EVAstates" "$EVBstates"
 fi
+
+
 
 # Initialize variables
 countres=0
