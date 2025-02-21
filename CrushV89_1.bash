@@ -127,7 +127,7 @@ function help {
     echo "-S|--switch              :  Set this option to 0 for bypassing re-initialization. Default is 1."  
     echo "-N|--norm                :  Set the normalization scheme to use. Options are NONE, VC, VC_SQRT, KR, SCALE. Default is NONE."
     echo "-C|--cleanup             :  Set the value for cleanup"
-    echo "-Z|--endZ                :  Set the value for endZ"
+    echo "-E|--endZ                :  Set the value for endZ"
     echo "-x|--exclbed             :  Set the value for exclbed"
     echo "-p|--pcalculation        :  Set this option to 0 for bypassing pvalue calculation. Default is 1."
     echo "-q|--qvalue              :  Set the qvalue threshold. default 0.05. Set to 0 to not perform qvalue filtering. The qvalues will be reported as a separate track regardelss."
@@ -136,20 +136,8 @@ function help {
     echo "-m|--maxres              :  Set this to the coarsest resolution you want to consider. Default is to check every resolution between 1000000 and your desired resolution to inform each other." 
     echo "-R|--reshift             :  Set this to option to 1 for turning on end-shifting. Default is 0." 
     echo "-s|--smoothing           :  Set this to option to 1 for smoothening the compartments. Default is 0." 
-    echo "-E|--eigenres            :  Set a resolution of your choice for eigenvector calculations. Default is 100kb (100000)."
+    echo "-Z|--eigenres            :  Set a resolution of your choice for eigenvector calculations. Default is 100kb (100000)."
     # Add more options here if needed
-}
-
-# Modified URL validation function
-validate_url() {
-    local url=$1
-    if ! command -v curl &> /dev/null; then
-        echo "Error: curl is not installed. Please install curl to validate remote files."
-        exit 1
-    fi
-    
-    curl --output /dev/null --silent --head --fail "$url"
-    return $?
 }
 
 # Parsing command line arguments
@@ -160,29 +148,7 @@ while test $# -gt 0; do
             exit 0
             ;;
         -i|--hic)
-            shift  # Move to the next argument which contains the actual path
-            if [ $# -eq 0 ]; then
-                echo "Error: No file specified after -i|--hic"
-                exit 1
-            fi
-            hicpath="$1"
-            # Check if it's a URL or local file
-            if [[ "$hicpath" =~ ^https?:// ]]; then
-                # Validate URL
-                if ! validate_url "$hicpath"; then
-                    echo "Error: Unable to access URL: $hicpath"
-                    exit 1
-                fi
-                echo "Using remote file: $hicpath"
-            else
-                # Check if it's a valid local file
-                if [[ ! -f "$hicpath" ]]; then
-                    echo "Error: Local file not found: $hicpath"
-                    exit 1
-                fi
-                hicpath=$(readlink -e "$hicpath")
-                echo "Using local file: $hicpath"
-            fi
+            hicpath=`readlink -e $2`
             ;;
         -o|--outpre)
             outpre=$2
@@ -254,7 +220,7 @@ while test $# -gt 0; do
         -C|--cleanup)
             cleanup=$2
             ;;
-        -Z|--endZ)
+        -E|--endZ)
             endZ=$2
             ;;
         -m|--maxres)
@@ -269,7 +235,7 @@ while test $# -gt 0; do
         -s|--smoothing)
             smoothing=$2
             ;;
-        -E|--eigenres) 
+        -Z|--eigenres) 
             eigenres=$2
             ;;
     esac
@@ -277,24 +243,9 @@ while test $# -gt 0; do
 done
 
 # Check if required arguments are provided
-if [[ -z "$hicpath" ]]; then
-    echo "You must specify a .hic or .mcool file! (local file or HTTPS link)"
-    exit 1
-fi
-
-# Check file extension and URL format
-if [[ "$hicpath" =~ ^https?:// ]]; then
-    # For URLs, check if they end with .hic or .mcool
-    if [[ ! "$hicpath" =~ \.(hic|mcool)$ ]]; then
-        echo "Error: URL must point to a .hic or .mcool file"
-        exit 1
-    fi
-else
-    # For local files, check if they exist and have the right extension
-    if [[ ! -f "$hicpath" ]] || [[ ! "$hicpath" =~ \.(hic|mcool)$ ]]; then
-        echo "Error: Input must be a valid .hic or .mcool file"
-        exit 1
-    fi
+if [ $hicpath == 0 ]; then
+    echo "You must specify a .hic file!......"
+    exit 0
 fi
 
 if [ $res == 0 ]; then
@@ -321,7 +272,7 @@ if [ $adjustment == 1 ]; then
     echo "Warning: adjusting end compartmental values which may result in some loss of quantitative power. We recommend adjustment only for troubleshooting or when not comparing two samples."
 fi
 
-echo "CRUSH_v""$version"" --hic ""$hicpath"" --res ""$res"" --genomesize ""$sizefile"" --initialA ""$genesfile"" --initialB ""$fastafile"" --cpu ""$cpu"" --no-merge ""$doNotMerge"" --adjustment ""$adjustment"" --distance ""$distance"" --upperlim ""$upperlim"" --lowerthresh ""$lowerthresh"" --trackline ""$trackline"" --threshold ""$threshold"" --window ""$window"" --switch ""$switch"" --maxres ""$coarsestres"" --norm ""$norm" > "$outpre"CRUSHparamters.txt
+echo "CRUSH_v""$version"" --hic ""$hicpath"" --res ""$res"" --genomesize ""$sizefile"" --initialA ""$genesfile"" --initialB ""$fastafile"" --cpu ""$cpu"" --no-merge ""$doNotMerge"" --adjustment ""$adjustment"" --distance ""$distance"" --upperlim ""$upperlim"" --lowerthresh ""$lowerthresh"" --trackline ""$trackline"" --threshold ""$threshold"" --window ""$window"" --switch ""$switch"" --maxres ""$coarsestres"" --norm ""$norm"" --eigenres ""$eigenres"" --reshift ""$reshift"" --smoothing ""$smoothing" > "$outpre"CRUSHparamters.txt
 
 # Check if the input file is .hic or .mcool
 juiceorcool=`echo "$hicpath" | sed 's/\./\t/g' | sed 's/\./\t/g' | awk '{if ($NF == "hic") print 0; else if ($NF == "mcool") print 1; else print 2}'`
@@ -383,7 +334,7 @@ process_genes_Bbins() {
         cat $EVAstates | mawk -v myres=$maxres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$maxres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
 
         # Bbins
-        cat $EVBstates | mawk -v myres=$maxres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$maxres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $pseudoB
+        cat $EVBstates |  mawk -v myres=$maxres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$maxres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $pseudoB
 
     elif [ "$switch" -lt 1 ]; then
 
@@ -391,7 +342,7 @@ process_genes_Bbins() {
         cat $EVAstates | mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
 
         # Bbins
-        cat $EVBstates | mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $pseudoB
+        cat $EVBstates | mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
 
     else  
 
@@ -401,10 +352,9 @@ process_genes_Bbins() {
         cat $combined_newAbins | mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
 
         # Bbins
-        cat $combined_newBbins | mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $pseudoB
+        cat $combined_newBbins |  mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $pseudoB
 
     fi
-
 }
 
 
@@ -647,26 +597,26 @@ generateEV() {
     echo "Starting EV generation for chromosome $chrom at resolution $res..."
     
     # Run Python script to generate PCs
-    run_EigenVector "$hic_file" "$chrom" "$res"
+    run_EigenVector "$hic_file" "$chrom" "$eigenres"
 
-    echo "PCs generated for $chrom at resolution $res."
+    echo "PCs generated for $chrom at resolution $eigenres."
 
     # Check and flip sign of PC1 if necessary
-    echo "Flipping the signs for $chrom PC's at resolution $res..."
+    echo "Flipping the signs for $chrom PC's at resolution $eigenres..."
 
-    process_all_pcs_for_chromosome "$chrom" "100000" "$genes_file"
+    process_all_pcs_for_chromosome "$chrom" "$eigenres" "$genes_file"
 
     # Find the best PC based on correlation
-    echo "Finding best PC for $chrom at resolution $res..."
+    echo "Finding best PC for $chrom at resolution $eigenres..."
 
-    find_best_pc "$chrom" "$res" "$genes_file" "$gc_file" "$chrom_size"
+    find_best_pc "$chrom" "$eigenres" "$genes_file" "$gc_file" "$chrom_size"
 
-    echo "Best PC identification completed for $chrom at resolution $res."
+    echo "Best PC identification completed for $chrom at resolution $eigenres."
 }
 
 concatenate_best_pcs() {
     echo "Concatenating the best eigenvectors for all chromosomes into a full genome file."
-    cat best_Eigen_*_100000.bedgraph > EV_full_genome.bedgraph
+    cat best_Eigen_*_{$res}.bedgraph > EV_full_genome.bedgraph
     echo "Concatenation completed. Full genome eigenvector file: EV_full_genome.bedgraph"
 }
 
@@ -1245,24 +1195,33 @@ process_resolution() {
     if [ "$countres" -gt 0 ]; then
         # Creating a python output file 
         python_output=`echo "shifter.bedgraph"`
+
         if [ "$coarse_res" -eq "$maxres" ] && [ "$coarse_res" != "$high_res" ]; then
+
             # Shifter Input files for the specified resolutions
             high_res_infile=`echo "$outiefull"`
             coarse_res_infile=`echo "$coarse_infile"`
+
         else
+            
             # Shifter Input files for the specified resolutions
             high_res_infile=`echo "$outiefull"` 
             coarse_res_infile=`echo "$python_output"`
+
         fi
 
         # Conditional checking for multiples of resolutions for shifter 
         # If coarseres is divisible by highres, use these resolutions for shifter as coarse and high
         if [[ "$(( $coarse_res % $high_res ))" -eq 0 ]]; then
+
             crtmp=$coarse_res
+
         else
+
             if [[ "$(( $crtmp % $high_res ))"  -eq 0 ]]; then
                 coarse_res=$crtmp
             fi
+
         fi
 
         # Executing the Shifter Python Script
@@ -1276,9 +1235,12 @@ process_resolution() {
 
         # Update coarse and high resolutions
         coarse_res=$high_res
+
     else
+
         #Separating A/B bins using Resolution based Output
         separating_ABbins $outiefull
+
     fi
 
     wait
@@ -1346,6 +1308,7 @@ reprocess_resolutions_with_shifter() {
 
         # Merge the reprocessed CRUSH files
         echo -ne "Merging individual chromosome files\033[0K\r"
+
         cat Crush_reprocess_${prev_res}_*_tmp | grep -v -i nan | \
         awk '
         {
@@ -1369,6 +1332,7 @@ reprocess_resolutions_with_shifter() {
         rm Crush_reprocess_${prev_res}_*_tmp
 
         if [ $prev_res -eq $minres ] && [ $pcalculation -gt 0 ]; then
+        
             outiefullPval_reprocess="pvalues_Re_${prev_res}.bedgraph"
             echo "Resolution: $prev_res for Resolution output and minres is : $minres"
             cat ttest_reprocess_${prev_res}_*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefullPval_reprocess
@@ -1376,8 +1340,10 @@ reprocess_resolutions_with_shifter() {
         fi
 
         if [ "$prev_res" == "$maxres" ]; then
+
             coarse_infile_reprocess=`echo "GI_Re_""$prev_res"".bedgraph"`
             cat $outiefull_reprocess > $coarse_infile_reprocess
+
             wait
         fi
 
@@ -1397,6 +1363,7 @@ reprocess_resolutions_with_shifter() {
             else
                 highres_infile_reprocess=`echo "$outiefull_reprocess"` 
                 coarse_res_infile_reprocess=`echo "$python_output"`
+
             fi
 
             # Conditional checking for multiples of resolutions for shifter 
@@ -1404,8 +1371,8 @@ reprocess_resolutions_with_shifter() {
             if [[ "$(( $coarse_res_reprocess % $highres_reprocess ))" -eq 0 ]]; then
                 crtmp_reprocess=$coarse_res_reprocess
             else
-                if [[ "$(( $crtmp_reprocess % $highres_reprocess ))"  -eq 0 ]]; then
-                    coarse_res_reprocess=$crtmp_reprocess
+                if [[ "$(( $crtmp_reprocess % $highres_reprocess ))" -eq 0 ]]; then
+                coarse_res_reprocess=$crtmp_reprocess
                 fi
             fi
 
@@ -1437,15 +1404,17 @@ reprocess_resolutions_with_shifter() {
     done
 }
 
-# The show unfolds from here:
+#The show unfolds from here:
+
 # Creating a directory for temporary file
 echo "Creating and moving into temporary directory"
 mkdir $crushdir
 cd $crushdir
 
 # Reading Resolutions
-if [ $juiceorcool -eq 0 ]; then
-    cat << EOF > listres.py
+if [ $juiceorcool -eq 0 ]
+then
+cat << EOF > listres.py
 import hicstraw
 hic = hicstraw.HiCFile("$hicpath")
 totres=hic.getResolutions()
@@ -1463,6 +1432,7 @@ else
 reslist=`cooler ls $hicpath | sed 's/\//\t/g' | awk -v var=$res -v cres=$coarsestres '{if (($NF >= var) && ($NF <= cres)) print $NF}' | sort -k 1bnr,1b --stable | awk '{if (NR == 1) printf "%s", $1; else printf ",%s", $1}' | awk '{print $0}'`
 res=$reslist
 fi
+
 
 # Check for fasta
 isfasta=`head -1 $fastafile | awk '{if ($1 ~ /^>/) print 1; else print 0}'`
@@ -1513,7 +1483,7 @@ if [ $isfasta == "1" ]; then
     cat $gcfile | grep -v user | cut -f 1-5 | awk '{print $0"\t"($4+$5)}' | awk '{if ($6 > 0) print $0}' | awk '{print $0"\t"($5/$6)}' > $gc_g_ga
     wait
 
-    # Calculating mean and SD for the whole genome and then subtracting 1-SD from the mean
+    # Calculating mean and SD for the whole genome and then subtracting 1SD from the mean
     gc_thresh=`cat $gc_g_ga | awk '{s+=$7; ss+=$7*$7; linecount+=1} END{print m=s/linecount, sqrt(ss/linecount-m^2)}' | awk '{print $0}' | awk '{print $1 - 1*$2}'`
 
     if [ $verbose -gt 0 ]; then
@@ -1529,9 +1499,8 @@ else
     cat $fastafile > $Bbins
 fi
 
-if [ $endZ == 0 ]
-then
-endZ=`echo "$minres"`
+if [ $endZ == 0 ]; then
+    endZ=`echo "$minres"`
 fi
 
 # Here is where I am running Eigen Block after reslist
@@ -1573,26 +1542,15 @@ else
 
     # Default behavior when no eigenfile is provided
     for chrom in $(cut -f 1 $sizefile); do
-
+        
         genesbinned="genesbinned.bed"
         gcbinned="gcbinned.bed"
 
-        # Check if eigenres is provided; otherwise, default to 100000
-        if [ -n "$eigenres" ] && [ "$eigenres" -gt 0 ]; then
-            echo "Using user-defined eigen resolution: $eigenres"
-            myres=$eigenres
-        else
-            echo "No eigen resolution provided. Using default: 100000"
-            myres=100000
-        fi
+        cat $genesfile | mawk -v myres=$eigenres -v mychr=$chrom '{if ($1 == mychr) print $1 "\t" int($2/myres)*myres "\t" int($3/myres)*myres}' > $genesbinned
+        cat $Bbins | mawk -v myres=$eigenres -v mychr=$chrom '{if ($1 == mychr) print $1 "\t" int($2/myres)*myres "\t" int($3/myres)*myres}' > $gcbinned
 
-        # Bin genes and B bins based on the chosen resolution
-        mawk -v myres="$myres" -v mychr="$chrom" '{if ($1 == mychr) print $1 "\t" int($2/myres)*myres "\t" int($3/myres)*myres}' "$genesfile" > "$genesbinned"
-        mawk -v myres="$myres" -v mychr="$chrom" '{if ($1 == mychr) print $1 "\t" int($2/myres)*myres "\t" int($3/myres)*myres}' "$Bbins" > "$gcbinned"
-
-        # Call generateEV function with required parameters
-        generateEV "$hicpath" "$chrom" "$myres" "$genesbinned" "$gcbinned" "$chrom_size"
-
+        generateEV "$hicpath" "$chrom" "$eigenres" "$genesbinned" "$gcbinned" "$sizefile"
+    
     done
 
     # Concatenate best eigenvectors for full genome BEDGraph
@@ -1623,7 +1581,7 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
 
     # Call the function for the current resolution
     process_resolution $myres $genesblock
-
+ 
     if [ $i -gt 0 ]; then
         reprocess_resolutions_with_shifter $myres $i 1
 
@@ -1650,11 +1608,15 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
         GIave=`cat $finaloutie | mawk '{if ($4 < 0) sum+=($4*-1); else sum+=($4)} END {print sum/NR}' `
 
         if [ $(bc <<< "$qthresh > 0") -eq 1 ]; then
+
             finaloutiefilt=`echo "$outpre""mergedCrush_""$myres""_qfiltered_reprocess.bedgraph"`
+
             mawk -v fdr=$qthresh -v var=$GIave 'NR==FNR {a[$1":"$2":"$3] = $4; next} {if (a[$1":"$2":"$3] <= fdr) print $1"\t"$2"\t"$3"\t"$4/(var/100)}'  $finalpoutie $finaloutie> $finaloutiefilt
+
         fi
 
         if [ $trackline -eq 0 ]; then
+
             cat $finaloutie | mawk -v var=$GIave '{print $1"\t"$2"\t"$3"\t"$4/(var/100)}' > $Crush_todelete
             cat $finalpoutie | mawk '{print $1"\t"$2"\t"$3"\t"$4}' > $pval_todelete
         else
@@ -1666,14 +1628,14 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
         if [ $trackline -gt 0 ] && [ $(bc <<< "$qthresh > 0") -eq 1 ]; then
             filt_todelete=`echo "tmpcrushfiltered_""$myres""_reprocess"`
             cat $finaloutiefilt | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=0,120,0 altColor=127,0,127 viewLimits=-20,20 autoScale off\n"$0; else print $0}' > $filt_todelete
+
             wait
 
             mv $filt_todelete $finaloutiefilt
             mv $Crush_todelete $finaloutie
             mv $pval_todelete $finalpoutie
- 
-            wait
 
+            wait
         fi
 
         ## Refixing the extra bins
@@ -1683,7 +1645,7 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
 
         cat $sizefile | awk '{print $1"\t""1""\t"$2}' > $sizeBed
 
-        cat $finaloutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}'> $finaloutie2
+        cat $finaloutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | sort -k 1,1 -V -k 2bn,2b --stable | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' > $finaloutie2
         mv $finaloutie2 $finaloutie
         
         # Apply smoothing if required
@@ -1704,7 +1666,6 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
 
             mv $filt_todelete $finaloutiefilt   # Move the temporary filtered file to the final filtered output
             mv $finalpoutie ../                 # Move the p-value output to the parent directory
-
         fi
 
         # Move final outputs to the parent directory
@@ -1713,7 +1674,6 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
         if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then
             mv $finaloutiefilt ../
         fi
-
     fi
 done
 
@@ -1789,13 +1749,13 @@ if [ "$reshift" -gt 0 ]; then
 
             wait
 
-            mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-100:100 autoScale off\n"$0; else print $0}' $newoutie > $newinnie    
+            mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' $newoutie > $newinnie    
             wait
 
         fi
 
     done
-
+    
     # Clean up smoothing files if smoothing was applied
     if [ "$smoothing" -gt 0 ]; then
         rm $finalshifter
@@ -1809,5 +1769,5 @@ if [ "$reshift" -gt 0 ]; then
 fi
 
 echo "Finished! Check the output."
-echo -e "Note: Please keep in mind that we are using resolution walking using Eigenvector calculated at $eigenres.\nIf the coarsest resolution doesn't match the compartment pattern at that resolution, please consider re-running with the -m parameter set to start the walking with smaller bins."
+echo -e "Note: Please keep in mind that we are using resolution walking.\nIf the coarsest resolution doesn't match the compartment pattern at that resolution, please consider re-running with the -m parameter set to start the walking with smaller bins."
 
