@@ -494,8 +494,7 @@ check_and_flip_sign() {
     echo "Checking and potentially flipping signs for $pc_file based on gene content from $genes_file..."
 
     # Check overlap and count positive and negative correlations with gene annotations
-    pos_neg=$(awk 'BEGIN {FS=OFS="\t"} {if ($4 > 0) print $0, "positive"; else if ($4 < 0) print $0, "negative"}' "$pc_file" |
-        sed 's/chr//g' |
+    pos_neg=$(awk 'BEGIN {FS=OFS="\t"} {if ($4 > 0) print $0, "positive"; else if ($4 < 0) print $0, "negative"}' "$pc_file" | 
         bedtools intersect -u -a stdin -b "$genes_file" |
         sort -k1,1 -V -k5b,5b |
         bedtools groupby -i stdin -g 1,5 -c 1 -o count |
