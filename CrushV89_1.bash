@@ -418,8 +418,22 @@ run_EigenVector() {
 
     echo "Generating EV's from 1 to $n_components for $chrom at resolution $res."
 
-    # Call run_dumper function to dump Hi-C matrix
-    run_dumper oe VC_SQRT $hic_file $chrom $res $eigendumpoutie $eigendumperrors
+    file_ext="${hic_file##*.}"
+    if [[ "$file_ext" == "hic" ]]; then
+        #Calling dumper for HiC files sing hicstraw
+        run_dumper oe VC_SQRT "$hic_file" "$chrom" "$res" "$eigendumpoutie" "$eigendumperrors"    
+    elif [[ "$file_ext" == "cool" || "$file_ext" == "mcool" ]]; then
+        echo "Detected cooler format: dumping with cooler CLI..."
+        local cooler_uri="$hic_file"
+        if [[ "$file_ext" == "mcool" ]]; then
+            cooler_uri="${hic_file}::/resolutions/${res}"
+        fi
+        #Dumping using Cooler functionality
+        cooler dump "$cooler_uri" -r "$chrom" --join | cut -f 2,5,7 > "$eigendumpoutie"
+    else
+        echo "Unsupported Hi-C file type: $hic_file"
+        exit 1
+    fi
 
     # Generate Python script to run eigenvector analysis
     cat << EOF > run_EigenVector.py
