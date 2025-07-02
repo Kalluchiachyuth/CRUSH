@@ -45,45 +45,6 @@ function cursorBack() {
     echo -en "\033[$1D"
 }
 
-# Spinner function to indicate processing
-function spinner() {
-    local LC_CTYPE=C # Ensure we use a non-unicode character type locale
-    local pid=$1 # Process Id of the previous running command
-
-    # Different spinner options
-    case $(($RANDOM % 17)) in
-        0) local spin='⠁⠂⠄⡀⢀⠠⠐⠈'; local charwidth=3 ;;
-        1) local spin='-\|/'; local charwidth=1 ;;
-        2) local spin="▁▂▃▄▅▆▇█▇▆▅▄▃▂▁"; local charwidth=3 ;;
-        3) local spin="▉▊▋▌▍▎▏▎▍▌▋▊▉"; local charwidth=3 ;;
-        4) local spin='←↖↑↗→↘↓↙'; local charwidth=3 ;;
-        5) local spin='▖▘▝▗'; local charwidth=3 ;;
-        6) local spin='┤┘┴└├┌┬┐'; local charwidth=3 ;;
-        7) local spin='◢◣◤◥'; local charwidth=3 ;;
-        8) local spin='◰◳◲◱'; local charwidth=3 ;;
-        9) local spin='◴◷◶◵'; local charwidth=3 ;;
-        10) local spin='◐◓◑◒'; local charwidth=3 ;;
-        11) local spin='⣾⣽⣻⢿⡿⣟⣯⣷'; local charwidth=3 ;;
-        12) local spin='CCCRRRUUUSSSHHH'; local charwidth=1 ;;
-        13) local spin='RRROOOWWWLLLEEEYYYLLLAAABBB'; local charwidth=1 ;;
-        14) local spin='SSSAAAIIITTTAAAMMMAAA'; local charwidth=1 ;;
-        15) local spin='MMMOOONNNKKKEEEYYYDDDLLLUUUFFFFFFYYY'; local charwidth=1 ;;
-        16) local spin='RRROOORRROOONNNOOOAAAZZZOOORRROOO'; local charwidth=1 ;;
-    esac
-
-    local i=0
-    tput civis # Cursor invisible
-    while kill -0 $pid 2>/dev/null; do
-        local i=$(((i + $charwidth) % ${#spin}))
-        printf "%s" "${spin:$i:$charwidth}"
-        cursorBack 1
-        sleep .1
-    done
-    tput cnorm
-    wait $pid # Capture exit code
-    return $?
-}
-
 # Display usage
 function usage {
     echo -e "\n\nusage : crush -i HIC  -g SIZEFILE -a ABED -b BBED | FASTA -r FINERESOLUTION [-e EIGENVECTORBED] [-cpu CPU] [-w WINDOW] [-h]"
@@ -1187,16 +1148,6 @@ process_resolution() {
             printf %s 000 >&3
         done
     }
-
-    #Removing the Spinner Functionality as it is interfering with Parallel Processing
-        #run_with_lock() {
-    #    local x
-    #    read -u 3 -n 3 x && ((0==x)) || exit $x
-    #    (
-    #    ( "$@"; )        
-    #    printf '%.3d' $? >&3
-    #    )& spinner $!
-    #}
 
     run_with_lock() {
         local x
