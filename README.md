@@ -38,22 +38,31 @@ This can be either a .hic file (from juicer) or a .mcool file (from cooler).
 **SIZEFILE**
 
 This is a two-column tab-delimited file with chromosome names and sizes.
+(Format: Chr Sizes)
+![image](https://github.com/user-attachments/assets/918b76c4-2939-4dc6-8a2d-91fc398ee703)
 
 **ABED**
 
-This file sets the initialization A states and can be any bed file with at least 3 tab-separated columns. We typically use genes, but use your imagination. For example, ChIP-seq peaks for an active mark should work well also.
+This file sets the initialization A states and can be any bed file with at least 3 tab-separated columns. We typically use genes, but use your imagination. For example, ChIP-seq peaks for an active mark should work well also. 
+(Format: Chr Start End "Optional Genes")
+![image](https://github.com/user-attachments/assets/a22b81a8-8602-4878-93b3-d1a1c3ac267a)
+
 
 **BBED**
 
 This file sets the initialization B states. It can be a bed file or it can be a fasta file. It should simply correspond to something that correlates with the inactive compartment. If you specify a fasta file, we will use gc content to calculate. This can slow it down a bit, but works well.
 
 **PLEASE ENSURE THAT THE CHROMOSOME NAMES MATCH BETWEEN ALL OF YOUR FILES.**
-
-
+Example: "Chr1" / "chr1" / "CHR1" / "1". (Keep it consistent across all the input files).
+ 
 
 ### Example usage
 
 CRUSH_v1.0 -i Myfile.hic -g hg38.sizes -a hg38_genes.bed -b hg38.fasta -r 1000 -cpu 23 -o output_prefix
+
+### Example usage with -m option to choose the initial resolution for resolution walking. 
+
+CRUSH_v1.0 -i Myfile.hic -g hg38.sizes -a hg38_genes.bed -b hg38.fasta -r 1000 -cpu 23 -o output_prefix -m 100000 (If you want CRUSH to start processing the hic file from 100kb resolution. It will ignore the other coarser resolutions beyond 100kb.)
 
 
 CRUSH has other optional parameters. We do not recommend that you change these unless you are confident in what they do. 
@@ -80,7 +89,7 @@ OPTIONS:
 
 --------------------------OPTIONAL PARAMETERS------------------
 -o|--outpre              :  Set this if you want to specify a prefix for the output files
--c|--cpu               :  Set the value for cpu number of threads to use. Default is 1.
+-c|--cpu                 :  Set the value for cpu number of threads to use. Default is 1.
 -n|--no-merge            :  Set this option to 1 to keep each resolution as a separate output file. Default is to merge in a way that provides maximum resolution.
 -A|--adjustment          :  Set this option to 1 to include a adjustment of CRUSH values at the end. This adjustment shifts values based on any internal skewing of the data. Do not set this if using CRUSH to compare between two Hi-C maps.
 -d|--distance            :  Using this option will filter out the distance next to the diagonal. Default is 0 which considers everything.
@@ -97,8 +106,8 @@ OPTIONS:
 -x|--exclbed             :  Set the value for exclbed.
 -q|--qvalue              :  Set the qvalue threshold. default 0.05. Set to 0 to not perform qvalue filtering. The qvalues will be reported as a separate track regardless.
 -u|--use                 :  Whether to use of overwrite existing GI tracks previously calculated at individual resolutions. Set this option to u to use previous calculations. Default is to recalculate. This option is useful for merging resolutions.
--f|--tmpfolder         :  Set this if you want to name the temporary folder yourself. Make sure it doesn't already exist in your current working directory. Default is to name it CRUSHtmp with a random number.
--m|--maxres             : Set this to the coarsest resolution you want to consider. Default is to check every resolution present in the .hic or .mcool file between 2500000 and your desired resolution to inform each other.
+-f|--tmpfolder           :  Set this if you want to name the temporary folder yourself. Make sure it doesn't already exist in your current working directory. Default is to name it CRUSHtmp with a random number.
+-m|--maxres              : Set this to the coarsest resolution you want to consider. Default is to check every resolution present in the .hic or .mcool file between 2500000 and your desired resolution to inform each other.
 ```
 
 ### Output Files
