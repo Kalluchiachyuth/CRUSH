@@ -39,6 +39,7 @@ This can be either a .hic file (from juicer) or a .mcool file (from cooler).
 
 This is a two-column tab-delimited file with chromosome names and sizes.
 (Format: Chr Sizes)
+
 ![image](https://github.com/user-attachments/assets/918b76c4-2939-4dc6-8a2d-91fc398ee703)
 
 **ABED**
