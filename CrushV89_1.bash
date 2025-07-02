@@ -1188,14 +1188,26 @@ process_resolution() {
         done
     }
 
+    #Removing the Spinner Functionality as it is interfering with Parallel Processing
+        #run_with_lock() {
+    #    local x
+    #    read -u 3 -n 3 x && ((0==x)) || exit $x
+    #    (
+    #    ( "$@"; )        
+    #    printf '%.3d' $? >&3
+    #    )& spinner $!
+    #}
+
     run_with_lock() {
         local x
         read -u 3 -n 3 x && ((0==x)) || exit $x
         (
-        ( "$@"; )
-        
-        printf '%.3d' $? >&3
-        )& spinner $!
+            "$@" &
+            local pid=$!
+            wait "$pid"
+            local exit_code=$?
+            printf '%.3d' "$exit_code" >&3
+        ) &
     }
 
     open_sem $cpu 
