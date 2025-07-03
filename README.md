@@ -62,6 +62,7 @@ Example: "Chr1" / "chr1" / "CHR1" / "1". (Keep it consistent across all the inpu
 CRUSH_v1.0 -i Myfile.hic -g hg38.sizes -a hg38_genes.bed -b hg38.fasta -r 1000 -cpu 23 -o output_prefix
 
 ### Example usage with -m option to choose the initial resolution for resolution walking. 
+If a hic file has resolutions (1mb,500kb,250kb,100kb,50kb,25kb,10kb,5kb,1kb), CRUSH by default initializes 1mb as the primary resolution for resolution walking. When -m {Resolution} is specified, it initializes based off of the -m resolution. For Exampe: -m 50kb , CRUSH is run with 50kb as its primary resolution for resolution walking. 
 
 CRUSH_v1.0 -i Myfile.hic -g hg38.sizes -a hg38_genes.bed -b hg38.fasta -r 1000 -cpu 23 -o output_prefix -m 100000 (If you want CRUSH to start processing the hic file from 100kb resolution. It will ignore the other coarser resolutions beyond 100kb.)
 
@@ -117,10 +118,10 @@ CRUSH's main output is 4 files, each of which starts with the prefix that you sp
 
 CRUSHparameters.txt: Contatins a simple record of the parameters and files that you used.
 
-mergedCrush_resolution.bedgraph (resolution is replaced with whatever you specified with the -r option): This is the main output file containing the scores for A (positive) and B (negative). Note that unlike eigenvector, you do not need to flip these calls, because A is always positive and B is always negative.
+mergedCrush_{resolution}.bedgraph (resolution is replaced with whatever you specified with the -r option): This is the main output file containing the scores for A (positive) and B (negative). Note that unlike eigenvector, you do not need to flip these calls, because A is always positive and B is always negative.
 
-mergedqvalue_resolution.bedgraph: This bedgraph track contains an estimated q-value for each bin's score.
+mergedqvalue_{resolution}.bedgraph: This bedgraph track contains an estimated q-value for each bin's score.
 
-mergedCrush_resolution_qfiltered.bedgraph: This bedgraph track contains only scores that meet the qvalue threshold. However, the thresholding currently seems overly stringent, and we've obtained excellent results without this filter.  
+mergedCrush_{resolution}_qfiltered.bedgraph: This bedgraph track contains only scores that meet the qvalue threshold. However, the thresholding currently seems overly stringent, and we've obtained excellent results without this filter.  
 
 While running, CRUSH will also create a temporary directory. The default is to name it CRUSHtmp_[randomnumber], but you can specify a name for this directory using the -f option. After completing, CRUSH will remove this directory by default, however, if you want to keep all the temporary files, you can use -C 0.
