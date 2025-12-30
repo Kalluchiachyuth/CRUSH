@@ -300,30 +300,51 @@ fi
 # Functions in the order of their precedence
 
 # Function to run dumper.py script
+# Function to run dumper.py script (safe under multithreading)
 run_dumper() {
-    local readtype=$1 # Can be observed, oe, expected
-    local norm=$2 # Can be NONE, VC, VC_SQRT, SCALE, KR
+    local readtype=$1  # observed / oe / expected
+    local norm=$2      # NONE, VC, VC_SQRT, SCALE, KR
     local hicinnie=$3
     local chrom=$4
     local res=$5
     local dumpoutie=$6
     local dumperrors=$7
 
-    echo "Dumping $readtype reads using $norm normalization at resolution $res."
+    echo "Dumping $readtype reads using $norm normalization at resolution $res for $chrom."
 
-    # Generate Python script for run_dumper 
-    cat << EOF > run_dumper.py
+    # Make the script file unique per output (so threads don't collide)
+    local script_dir
+    script_dir="$(dirname "$dumpoutie")"
+    local script_base
+    script_base="$(basename "$dumpoutie")"
+    local script_path="${script_dir}/run_dumper_${script_base}.py"
+
+    # Ensure directory exists
+    mkdir -p "$script_dir"
+
+    # Write a tiny, self-contained Python script *for this chromosome only*
+    cat > "$script_path" << EOF
 import hicstraw
-import sys
 
-result = hicstraw.straw("$readtype", "$norm", "$hicinnie", "$chrom", "$chrom", "BP", int("$res"))
+readtype = "$readtype"
+norm = "$norm"
+hicfile = "$hicinnie"
+chrom = "$chrom"
+res = int("$res")
+
+result = hicstraw.straw(readtype, norm, hicfile, chrom, chrom, "BP", res)
 for record in result:
+    # binX and binY in BP; counts is the contact count
     print("{0}\t{1}\t{2}".format(record.binX, record.binY, record.counts))
-
 EOF
 
-    python run_dumper.py $readtype $norm $hicpath $chrom $res | grep -v WARN > $dumpoutie 2> $dumperrors
+    # Run it
+    python3 "$script_path" 2> "$dumperrors" | grep -v WARN > "$dumpoutie"
+
+    # Optional: if you want to keep things tidy, you can uncomment:
+    # rm -f "$script_path"
 }
+
 
 # Function to process the initial A (Genes)/ Eigen-A and B (GC)/ Eigen-B files  
 process_genes_Bbins() {
@@ -1067,10 +1088,10 @@ process_resolution() {
             cooler dump $hicpath::/resolutions/$myres -r $mychr --join | cut -f 2,5,7 > $dumped 2> $dumperrors
         fi
 
-        # Check for errors in dumped reads
-        chromcheck=$(grep -e KeyError -e name dumperrors_$myres | wc -l)
-        if [ $chromcheck -gt 0 ]; then
-            echo "WARNING: A chromosome in your size file was not found in the .mcool file. Make sure the names match up. For example, check for chr1 vs. 1."
+        # Sanity check: did dump succeed?
+        if [ ! -s "$dumped" ]; then
+            echo "WARNING: no dumped reads for $mychr at $myres (file: $dumped). Check $dumperrors" >&2
+            return
         fi
 
         wait
