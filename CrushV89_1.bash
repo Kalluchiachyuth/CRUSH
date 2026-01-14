@@ -1,7 +1,43 @@
-#!/bin/bash
+
+################################################################################
+#                                                                              #
+#                    CRUSH - Chromatin Compartment Analysis                   #
+#                      Hi-C Resolution-based Compartment Caller                #
+#                                                                              #
+################################################################################
+#
+# CRUSH (Compartment Recognition Using Shifted Hierarchies) analyzes Hi-C data
+# to identify A/B chromatin compartments at multiple resolutions.
+#
+# Key Features:
+# - Multi-resolution compartment calling with recursive refinement
+# - Eigenvector-based initialization of A/B states
+# - Parallel processing for improved performance
+# - Statistical significance testing with FDR correction
+#
+# Background on A/B Compartments:
+# - A compartments: Gene-rich, open chromatin, active transcription (positive GI)
+# - B compartments: Gene-poor, closed chromatin, silent (negative GI)
+# - GI Score: Genome Interaction score measuring preference for A vs B interactions
+#
+################################################################################
+
+
+
+
+################################################################################
+#                         VERSION & DEFAULTS                                 #
+################################################################################
 
 #CRUSH Script Version
 version=1.0 # A version where EigenVector approach is considered for initialization states and recursive iteration of resolutions is implemented.
+
+
+################################################################################
+#                    PARAMETER INITIALIZATION                                #
+################################################################################
+# These variables define default values for all CRUSH parameters
+# They can be overridden via command-line arguments
 
 #Initial variables
 hicpath=0
@@ -30,9 +66,13 @@ outpre=""
 norm=NONE #Default
 coarsestres=2500000
 pcalculation=1
-reshift=0
 smoothing=0
-eigenres=100000 #Default resolution for Eigen calculations 
+eigenres=100000 #Default resolution for Eigen calculations
+
+
+################################################################################
+#                       SYSTEM UTILITIES                                     #
+################################################################################
 
 # Trap for cleanup
 function shutdown() {
@@ -45,6 +85,50 @@ function cursorBack() {
     echo -en "\033[$1D"
 }
 
+
+################################################################################
+#                    PARALLEL PROCESSING FRAMEWORK                           #
+################################################################################
+#
+# These semaphore functions implement a token-based system for controlling
+# parallel job execution. They ensure we don't exceed the specified CPU limit.
+#
+# How it works:
+# 1. open_sem creates a FIFO pipe with N tokens (where N = number of CPUs)
+# 2. run_with_lock consumes a token before starting a job
+# 3. When job completes, it returns the token to the pool
+# 4. If no tokens available, jobs wait until one is freed
+#
+################################################################################
+
+# Semaphore functions for parallel processing (used globally)
+open_sem() {  # Initialize semaphore with N tokens (N = CPU count)
+    mkfifo pipe-$$
+    exec 3<>pipe-$$
+    rm pipe-$$
+    local i=$1
+    for((;i>0;i--)); do
+        printf %s 000 >&3
+    done
+}
+
+run_with_lock() {  # Execute with semaphore lock (parallel processing)
+    local x
+    read -u 3 -n 3 x && ((0==x)) || exit $x
+    (
+        "$@" &
+        local pid=$!
+        wait "$pid"
+        local exit_code=$?
+        printf '%.3d' "$exit_code" >&3
+    ) &
+}
+
+
+################################################################################
+#                        HELP & USAGE FUNCTIONS                              #
+################################################################################
+
 # Display usage
 function usage {
     echo -e "\n\nusage : crush -i HIC  -g SIZEFILE -a ABED -b BBED | FASTA -r FINERESOLUTION [-e EIGENVECTORBED] [-cpu CPU] [-w WINDOW] [-h]"
@@ -54,51 +138,154 @@ function usage {
 # Help menu function
 function help {
     usage;
-    echo
-    echo "CRUSH will create a temprory folder in your current directory, so make sure you have write access to your current directory."
-    echo "See https://github.com/JRowleyLab/CRUSH/ for full documentation on CRUSH"
-    echo "-----------------------------------------"
-    echo "OPTIONS:"
+    echo ""
+    echo "================================================================================"
+    echo "                         CRUSH - Hi-C Compartment Analysis"
+    echo "================================================================================"
+    echo ""
+    echo "CRUSH analyzes Hi-C data to identify chromatin compartments at multiple"
+    echo "resolutions. It will create a temporary folder in your current directory,"
+    echo "so please ensure you have write access."
+    echo ""
+    echo "For full documentation, visit: https://github.com/JRowleyLab/CRUSH/"
+    echo ""
+    echo "================================================================================"
+    echo ""
 
-    echo "-h|--help                :  Display this help menu"
-    echo " "
-    echo "--------------------------REQUIRED PARAMETERS------------------"
-    echo "-i|--hic                 :  Input .hic/.cooler/.mcool file by specifying the path. (e.g., '/path/to/ file.hic or file.mcool or file.cooler)"
-    echo "-g|--genomesize          :  Specify path to a chromosome size file with two columns corresponding to chromosome and size respectively."
-    echo "-a|--initialA            :  Specify path to a bed file with the regions for initializing A. For example, gene annotations e.g. hg19genes.bed."
-    echo "-b|--initialB            :  Specify path to either a fasta file or to a bed file for initializing B. If you specify a fasta file, we will calculate intialB from gc content." 
-    echo "-e|--eigenfile           :  Specify path to an eigenfile to initialize A and B states. If you don't specify a file, CRUSH will calculate EigenVectors by default and pick the best PC possible." 
-    echo "-r|--res                 :  Resolution desired."
-    echo "---------------" 
+    echo "GETTING HELP:"
+    echo "-------------"
+    echo ""
+    echo "  -h, --help              Display this help menu"
+    echo ""
+    echo "================================================================================"
+    echo ""
 
-    echo " "
-    echo "--------------------------OPTIONAL PARAMETERS------------------"
+    echo "REQUIRED PARAMETERS:"
+    echo "--------------------"
+    echo ""
+    echo "  -i, --hic FILE          Input Hi-C file (.hic, .cooler, or .mcool format)"
+    echo "                          Example: '/path/to/file.hic'"
+    echo ""
+    echo "  -g, --genomesize FILE   Chromosome size file (2 columns: chr_name, size)"
+    echo "                          Example: 'hg19.chrom.sizes'"
+    echo ""
+    echo "  -a, --initialA FILE     BED file for initializing A compartments"
+    echo "                          Example: Gene annotations like 'hg19genes.bed'"
+    echo ""
+    echo "  -b, --initialB FILE     BED or FASTA file for initializing B compartments"
+    echo "                          If FASTA: initializes from GC content"
+    echo ""
+    echo "  -e, --eigenfile FILE    Eigenfile to initialize A and B states (optional)"
+    echo "                          If not specified, CRUSH will calculate eigenvectors"
+    echo "                          automatically and select the best principal component"
+    echo ""
+    echo "  -r, --res VALUE         Desired resolution for analysis"
+    echo "                          Example: 10000 (for 10kb resolution)"
+    echo ""
+    echo "================================================================================"
+    echo ""
 
-    echo "-o|--outpre              :  Set this if you want to specify a prefix for the output files"
-    echo "-c|--cpu                 :  Set the value for cpu number of threads to use. Default is 1."
-    echo "-n|--no-merge            :  Set this option to 1 to keep each resolution as a separate output file. Default is to merge in a way that provides maximum resolution."
-    echo "-A|--adjustment          :  Set this option to 1 to include a adjustment of CRUSH values at the end. This adjustment shifts values based on any internal skewing of the data. Do not set this if using CRUSH to compare between two Hi-C maps."
-    echo "-d|--distance            :  Using this option will filter out the distance next to the diagonal. Default is 0 which considers everything."
-    echo "-u|--upperlim            :  The upperlimit of the distance away from the diagonal to consider. Default is 0 so that it considers the whole chromosome."
-    echo "-t|--trackline           :  Set to 0 if you want to disable printing a bedgraph trackline header."
-    echo "-T|--threshold           :  Distance normalized threshold to filter out extreme outliers."
-    echo "-l|--lowerthresh         :  Set the value for lowerthresh."
-    echo "-w|--window              :  Set to perform a sliding window average of the scores at individual resolutions. Default is to calculate the appropriate window based on sequencing depth. Set to 1 to remove sliding window."
-    echo "-v|--verbose             :  Set to 1 to enable verbose mode showing extensive messages."
-    echo "-S|--switch              :  Set this option to 0 for bypassing re-initialization. Default is 1."  
-    echo "-N|--norm                :  Set the normalization scheme to use. Options are NONE, VC, VC_SQRT, KR, SCALE. Default is NONE."
-    echo "-C|--cleanup             :  Set the value for cleanup"
-    echo "-E|--endZ                :  Set the value for endZ"
-    echo "-x|--exclbed             :  Set the value for exclbed"
-    echo "-p|--pcalculation        :  Set this option to 0 for bypassing pvalue calculation. Default is 1."
-    echo "-q|--qvalue              :  Set the qvalue threshold. default 0.05. Set to 0 to not perform qvalue filtering. The qvalues will be reported as a separate track regardelss."
-    echo "-u|--use                 :  Whether to use of overwrite existing GI tracks previously calculated at individual resolutions. Set this option to u to use previous calculations. Default is to recalculate. This option is useful for merging resolutions."     
-    echo "-f|--tmpfolder           :  Set this if you want to name the temporary folder youself. Make sure it doesn't already exist in your current working directory. Default is to name it CRUSHtmp with a randomnumber."
-    echo "-m|--maxres              :  Set this to the coarsest resolution you want to consider. Default is to check every resolution between 1000000 and your desired resolution to inform each other." 
-    echo "-R|--reshift             :  Set this to option to 1 for turning on end-shifting. Default is 0." 
-    echo "-s|--smoothing           :  Set this to option to 1 for smoothening the compartments. Default is 0." 
-    echo "-Z|--eigenres            :  Set a resolution of your choice for eigenvector calculations. Default is 100kb (100000)."
-    # Add more options here if needed
+    echo "OPTIONAL PARAMETERS:"
+    echo "--------------------"
+    echo ""
+    echo "Output Options:"
+    echo "  -o, --outpre PREFIX     Prefix for output files"
+    echo "                          Default: No prefix"
+    echo ""
+    echo "  -n, --no-merge [0|1]    Keep each resolution as separate file"
+    echo "                          0 = Merge resolutions (default)"
+    echo "                          1 = Keep separate files"
+    echo ""
+    echo "  -t, --trackline [0|1]   Include bedGraph track header"
+    echo "                          0 = Disable header"
+    echo "                          1 = Include header (default)"
+    echo ""
+    echo "Performance Options:"
+    echo "  -c, --cpu NUMBER        Number of CPU threads to use"
+    echo "                          Default: 1"
+    echo ""
+    echo "  -C, --cleanup [0|1]     Clean up temporary files after completion"
+    echo "                          Default: 1 (cleanup enabled)"
+    echo ""
+    echo "Analysis Options:"
+    echo "  -A, --adjustment [0|1]  Adjust CRUSH values based on data distribution"
+    echo "                          WARNING: Do NOT use when comparing Hi-C maps"
+    echo "                          Default: 0 (disabled)"
+    echo ""
+    echo "  -d, --distance VALUE    Filter distance from diagonal (in bins)"
+    echo "                          Default: 0 (consider all distances)"
+    echo ""
+    echo "  -u, --upperlim VALUE    Upper limit of distance from diagonal to consider"
+    echo "                          Default: 0 (considers whole chromosome)"
+    echo ""
+    echo "  -T, --threshold VALUE   Distance-normalized threshold for outlier filtering"
+    echo "                          Default: 10"
+    echo ""
+    echo "  -l, --lowerthresh VALUE Lower threshold value"
+    echo "                          Default: 0"
+    echo ""
+    echo "  -w, --window VALUE      Sliding window size for score averaging"
+    echo "                          Default: Auto-calculated from sequencing depth"
+    echo "                          Set to 1 to disable sliding window"
+    echo ""
+    echo "  -S, --switch [0|1]      Enable re-initialization of bins between resolutions"
+    echo "                          0 = Bypass re-initialization"
+    echo "                          1 = Enable (default)"
+    echo ""
+    echo "  -N, --norm TYPE         Normalization scheme"
+    echo "                          Options: NONE (default), VC, VC_SQRT, KR, SCALE"
+    echo ""
+    echo "  -m, --maxres VALUE      Coarsest resolution to consider"
+    echo "                          Default: 2500000 (checks 1000000 to your resolution)"
+    echo ""
+    echo "  -Z, --eigenres VALUE    Resolution for eigenvector calculations"
+    echo "                          Default: 100000 (100kb)"
+    echo ""
+    echo "  -s, --smoothing [0|1]   Apply smoothing to compartment boundaries"
+    echo "                          0 = No smoothing (default)"
+    echo "                          1 = Enable smoothing"
+    echo ""
+    echo "Statistical Options:"
+    echo "  -p, --pcalculation [0|1] Calculate p-values"
+    echo "                           0 = Skip p-value calculation"
+    echo "                           1 = Calculate (default)"
+    echo ""
+    echo "  -q, --qvalue VALUE       Q-value threshold for significance filtering"
+    echo "                           Default: 0.05"
+    echo "                           Set to 0 to disable filtering"
+    echo ""
+    echo "Advanced Options:"
+    echo "  -v, --verbose [0|1]     Enable verbose output messages"
+    echo "                          Default: 0 (minimal output)"
+    echo ""
+    echo "  -x, --exclbed FILE      BED file of regions to exclude from analysis"
+    echo ""
+    echo "  -E, --endZ VALUE        End Z-score value"
+    echo ""
+    echo "  -u, --use [o|u]         Use existing GI tracks from previous calculations"
+    echo "                          'o' = Overwrite/recalculate (default)"
+    echo "                          'u' = Use existing (useful for merging resolutions)"
+    echo ""
+    echo "  -f, --tmpfolder NAME    Custom name for temporary folder"
+    echo "                          Default: CRUSHtmp_RANDOM"
+    echo "                          (Must not already exist)"
+    echo ""
+    echo "================================================================================"
+    echo ""
+    echo "EXAMPLES:"
+    echo ""
+    echo "  Basic usage:"
+    echo "    crush -i data.hic -g hg19.sizes -a genes.bed -b genome.fa -r 10000"
+    echo ""
+    echo "  With multiple threads and custom output:"
+    echo "    crush -i data.hic -g hg19.sizes -a genes.bed -b genome.fa -r 10000 \\"
+    echo "          -c 8 -o myproject_"
+    echo ""
+    echo "  With smoothing and custom resolution range:"
+    echo "    crush -i data.hic -g hg19.sizes -a genes.bed -b genome.fa -r 5000 \\"
+    echo "          -s 1 -m 1000000 -c 16"
+    echo ""
+    echo "================================================================================"
 }
 
 # Modified URL validation function
@@ -108,7 +295,7 @@ validate_url() {
         echo "Error: curl is not installed. Please install curl to validate remote files."
         exit 1
     fi
-    
+
     curl --output /dev/null --silent --head --fail "$url"
     return $?
 }
@@ -160,7 +347,7 @@ while test $# -gt 0; do
         -b|--initialB)
             fastafile=`readlink -e $2`
             ;;
-        -e|--eigenfile) 
+        -e|--eigenfile)
             eigenfile=`readlink -e $2`
             shift
             ;;
@@ -224,13 +411,10 @@ while test $# -gt 0; do
         -p|--pcalculation)
             pcalculation=$2
             ;;
-        -R|--reshift)
-            reshift=$2
-            ;;
         -s|--smoothing)
             smoothing=$2
             ;;
-        -Z|--eigenres) 
+        -Z|--eigenres)
             eigenres=$2
             ;;
     esac
@@ -282,7 +466,7 @@ if [ $adjustment == 1 ]; then
     echo "Warning: adjusting end compartmental values which may result in some loss of quantitative power. We recommend adjustment only for troubleshooting or when not comparing two samples."
 fi
 
-echo "CRUSH_v""$version"" --hic ""$hicpath"" --res ""$res"" --genomesize ""$sizefile"" --initialA ""$genesfile"" --initialB ""$fastafile"" --cpu ""$cpu"" --no-merge ""$doNotMerge"" --adjustment ""$adjustment"" --distance ""$distance"" --upperlim ""$upperlim"" --lowerthresh ""$lowerthresh"" --trackline ""$trackline"" --threshold ""$threshold"" --window ""$window"" --switch ""$switch"" --maxres ""$coarsestres"" --norm ""$norm"" --eigenres ""$eigenres"" --reshift ""$reshift"" --smoothing ""$smoothing" > "$outpre"CRUSHparamters.txt
+echo "CRUSH_v""$version"" --hic ""$hicpath"" --res ""$res"" --genomesize ""$sizefile"" --initialA ""$genesfile"" --initialB ""$fastafile"" --cpu ""$cpu"" --no-merge ""$doNotMerge"" --adjustment ""$adjustment"" --distance ""$distance"" --upperlim ""$upperlim"" --lowerthresh ""$lowerthresh"" --trackline ""$trackline"" --threshold ""$threshold"" --window ""$window"" --switch ""$switch"" --maxres ""$coarsestres"" --norm ""$norm"" --eigenres ""$eigenres"" --smoothing ""$smoothing" > "$outpre"CRUSHparamters.txt
 
 # Check if the input file is .hic or .mcool
 juiceorcool=`echo "$hicpath" | sed 's/\./\t/g' | sed 's/\./\t/g' | awk '{if ($NF == "hic") print 0; else if ($NF == "mcool") print 1; else print 2}'`
@@ -297,9 +481,28 @@ else
 fi
 
 
+
+################################################################################
+#                      CORE PROCESSING FUNCTIONS                             #
+################################################################################
+
 # Functions in the order of their precedence
 
+
+# ------------------------------------------------------------------------------
+# HI-C DATA EXTRACTION
+# ------------------------------------------------------------------------------
+# Extract contact matrices from .hic files using hicstraw (Python)
+# ------------------------------------------------------------------------------
+
 # Function to run dumper.py script
+
+# ------------------------------------------------------------------------------
+# HI-C DATA EXTRACTION
+# ------------------------------------------------------------------------------
+# Extract contact matrices from .hic files using hicstraw (Python)
+# ------------------------------------------------------------------------------
+
 # Function to run dumper.py script (safe under multithreading)
 run_dumper() {
     local readtype=$1  # observed / oe / expected
@@ -346,7 +549,15 @@ EOF
 }
 
 
-# Function to process the initial A (Genes)/ Eigen-A and B (GC)/ Eigen-B files  
+
+# ------------------------------------------------------------------------------
+# A/B COMPARTMENT INITIALIZATION
+# ------------------------------------------------------------------------------
+# Process gene (A compartment) and GC/Eigen (B compartment) files
+# to create initial compartment state definitions at each resolution
+# ------------------------------------------------------------------------------
+
+# Function to process the initial A (Genes)/ Eigen-A and B (GC)/ Eigen-B files
 process_genes_Bbins() {
     local myres=$1
     local mychr=$2
@@ -359,9 +570,9 @@ process_genes_Bbins() {
 
         echo "Using initial Genes and Bbins files for $maxres"
 
-        maxres_processed=1 # Set maxres_processed to prevent future initial processing for maxres 
+        maxres_processed=1 # Set maxres_processed to prevent future initial processing for maxres
 
-        # Processing the genes & Bbins files 
+        # Processing the genes & Bbins files
         cat $EVAstates | mawk -v myres=$maxres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$maxres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
 
         # Bbins
@@ -375,11 +586,11 @@ process_genes_Bbins() {
         # Bbins
         cat $EVBstates | mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
 
-    else  
+    else
 
         echo "Using combined bins for $myres"
 
-        # Processing the genes & Bbins files for other resolutions 
+        # Processing the genes & Bbins files for other resolutions
         cat $combined_newAbins | mawk -v myres=$myres -v mychr=$mychr '{if ($1 == mychr) print $1"\t"int($2/myres)*myres"\t"int($3/myres)*myres}' | awk -v myres=$myres '{for (i=$2;i<=$3;i+=myres) b[i]+=1}  END { for (j in b) print j"\t"b[j]} ' > $sortedbed
 
         # Bbins
@@ -388,6 +599,14 @@ process_genes_Bbins() {
     fi
 }
 
+
+
+# ------------------------------------------------------------------------------
+# EIGENVECTOR ANALYSIS
+# ------------------------------------------------------------------------------
+# Calculate eigenvectors (principal components) from Hi-C correlation matrix
+# PC1 typically separates A/B compartments; we test multiple PCs to find best
+# ------------------------------------------------------------------------------
 
 # Function to run the Eigen vector analysis
 run_EigenVector() {
@@ -403,7 +622,7 @@ run_EigenVector() {
     file_ext="${hic_file##*.}"
     if [[ "$file_ext" == "hic" ]]; then
         #Calling dumper for HiC files sing hicstraw
-        run_dumper oe VC_SQRT "$hic_file" "$chrom" "$res" "$eigendumpoutie" "$eigendumperrors"    
+        run_dumper oe VC_SQRT "$hic_file" "$chrom" "$res" "$eigendumpoutie" "$eigendumperrors"
     elif [[ "$file_ext" == "cool" || "$file_ext" == "mcool" ]]; then
         echo "Detected cooler format: dumping with cooler CLI..."
         local cooler_uri="$hic_file"
@@ -467,6 +686,14 @@ EOF
     python run_EigenVector.py "$eigendumpoutie" "$res" "$chrom"
 }
 
+
+# ------------------------------------------------------------------------------
+# EIGENVECTOR ORIENTATION
+# ------------------------------------------------------------------------------
+# Orient eigenvector so positive values = A compartments (gene-rich)
+# and negative values = B compartments (gene-poor)
+# ------------------------------------------------------------------------------
+
 # Function to check and flip sign of PC based on gene content using bedtools
 check_and_flip_sign() {
     local pc_file="$1"
@@ -476,7 +703,7 @@ check_and_flip_sign() {
     echo "Checking and potentially flipping signs for $pc_file based on gene content from $genes_file..."
 
     # Check overlap and count positive and negative correlations with gene annotations
-    pos_neg=$(awk 'BEGIN {FS=OFS="\t"} {if ($4 > 0) print $0, "positive"; else if ($4 < 0) print $0, "negative"}' "$pc_file" | 
+    pos_neg=$(awk 'BEGIN {FS=OFS="\t"} {if ($4 > 0) print $0, "positive"; else if ($4 < 0) print $0, "negative"}' "$pc_file" |
         bedtools intersect -u -a stdin -b "$genes_file" |
         sort -k1,1 -V -k5b,5b |
         bedtools groupby -i stdin -g 1,5 -c 1 -o count |
@@ -515,6 +742,14 @@ process_all_pcs_for_chromosome() {
 
     echo "All PCs for chromosome $chrom at resolution $res have been processed. See sign_check_output.txt for details."
 }
+
+
+# ------------------------------------------------------------------------------
+# PRINCIPAL COMPONENT SELECTION
+# ------------------------------------------------------------------------------
+# Find PC with highest correlation to gene density minus GC content
+# This identifies the component that best separates A/B compartments
+# ------------------------------------------------------------------------------
 
 # Function to find the best PC among the 10 PCs. Still working on this to make it better. Adapt from the working versions later
 find_best_pc() {
@@ -622,6 +857,13 @@ EOF
 }
 
 
+
+# ------------------------------------------------------------------------------
+# EIGENVECTOR PIPELINE WRAPPER
+# ------------------------------------------------------------------------------
+# Master function that coordinates: EV generation → sign flipping → PC selection
+# ------------------------------------------------------------------------------
+
 # Function to run the Eigen related commands
 generateEV() {
     local hic_file="$1"
@@ -632,7 +874,7 @@ generateEV() {
     local chrom_size="$6"
 
     echo "Starting EV generation for chromosome $chrom at resolution $res..."
-    
+
     # Run Python script to generate PCs
     run_EigenVector "$hic_file" "$chrom" "$eigenres"
 
@@ -651,11 +893,24 @@ generateEV() {
     echo "Best PC identification completed for $chrom at resolution $eigenres."
 }
 
+
+# ------------------------------------------------------------------------------
+# Concatenate best eigenvectors from all chromosomes into genome-wide file
+# ------------------------------------------------------------------------------
+
 concatenate_best_pcs() {
     echo "Concatenating the best eigenvectors for all chromosomes into a full genome file."
     cat best_Eigen_*.bedgraph > EV_full_genome.bedgraph
     echo "Concatenation completed. Full genome eigenvector file: EV_full_genome.bedgraph"
 }
+
+
+# ------------------------------------------------------------------------------
+# SMOOTHING FUNCTION
+# ------------------------------------------------------------------------------
+# Apply sliding window smoothing to reduce noise at compartment boundaries
+# Uses shifted left/right averaging
+# ------------------------------------------------------------------------------
 
 # Function to perform shifting and smoothing on bedgraph data
 run_smoothing() {
@@ -678,6 +933,16 @@ run_smoothing() {
     # Step 5: Move the output back to newoutie
     mv shifted_outie "$innieS"
 }
+
+
+# ------------------------------------------------------------------------------
+# GI SCORE CALCULATION
+# ------------------------------------------------------------------------------
+# Calculate Genome Interaction (GI) scores for each bin:
+#   GI = (A_interactions - B_interactions) / (A_interactions + B_interactions)
+# Positive GI → prefers A compartments (likely A)
+# Negative GI → prefers B compartments (likely B)
+# ------------------------------------------------------------------------------
 
 # Function to generate A and B compartmental states
 process_oppocheck_statement() {
@@ -769,6 +1034,14 @@ process_oppocheck_statement() {
     fi
 }
 
+
+# ------------------------------------------------------------------------------
+# RESOLUTION SHIFTER
+# ------------------------------------------------------------------------------
+# Adjust finer resolution scores based on coarser resolution trends
+# This implements the hierarchical refinement approach
+# ------------------------------------------------------------------------------
+
 #Shifter function
 run_midshifter() {
     local finer_res=$1
@@ -779,7 +1052,7 @@ run_midshifter() {
 
     echo "Running shifter with Finer Resolution: $finer_res and Coarser Resolution: $coarser_res"
     echo "High-res file: $high_innie, Coarse-res file: $coarse_innie"
-    
+
     # Generate Python script for shifter
     cat << EOF > hdrescompare.py
 import numpy as np
@@ -871,38 +1144,15 @@ EOF
 }
 
 # Shifter function
-run_endshifter() {
-    local finer_res=$1
-    local coarser_res=$2
-    local high_innie=$3
-    local coarse_innie=$4
-    local shifter_outie=$5
-    
-    echo "Running shifter with Finer Resolution: $finer_res and Coarser Resolution: $coarser_res"
-    echo "High-res file: $high_innie, Coarse-res file: $coarse_innie"
 
-    # Generate intervals
-    awk -v var="$coarser_res" '
-        {
-            for (i=0; i<=$2; i+=var) {   # Loop from 0 to the size of the chromosome in steps of "var"
-                start = i-(var*2)        # Calculate the start of the interval (2 bins to the left)
-                end = i+(var*3)          # Calculate the end of the interval (3 bins to the right)
-                if (start < 0) start = 0  # Ensure the start is not negative
-                if (end > $2) end = $2   # Ensure the end does not exceed the chromosome length
-                print $1 "\t" start "\t" end    # Print the chromosome name, start, and end of the interval
-            }
-        }
-    ' "$sizefile" > temp_intervals.bed
-    
-    # Main pipeline (1. Intersect with high_innie and calculate mean 2. Intersect with coarse_innie and calculate first difference 3. Intersect with high_innie again and calculate final difference)
-    intersectBed -wa -a temp_intervals.bed -wb -b $high_innie | groupBy -i stdin -g 1,2,3 -c 7 -o mean | intersectBed -wa -a $coarse_innie -wb -b stdin | awk '{print $1"\t"$2"\t"$3"\t"$8-$4}' | intersectBed -wa -a $high_innie -wb -b stdin | groupBy -i stdin -g 1,2,3,4 -c 8 -o mean | awk '{print $1"\t"$2"\t"$3"\t"$4-$5}' > $shifter_outie
 
-    #Cleanup
-    rm temp_intervals.bed
 
-    echo "Shifter executed and output written to $shifter_outie"
-}
-
+# ------------------------------------------------------------------------------
+# COMPARTMENT RECLASSIFICATION
+# ------------------------------------------------------------------------------
+# Separate bins into A (positive GI) and B (negative GI) based on current scores
+# If switch=1, re-initialize A/B states for next resolution iteration
+# ------------------------------------------------------------------------------
 
 # Separating out A and B regions from the outiefull and intersecting with the genes and Bbins to improve compartments identification
 separating_ABbins() {
@@ -932,13 +1182,13 @@ if [ "$switch" -eq 1 ]; then
 
     awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newBbins $Bbins > $non_newBbins
 
-    cat $newBbins $non_newBbins > $combined_newBbins 
+    cat $newBbins $non_newBbins > $combined_newBbins
 
     cat $genesfile | cut -f 1-3 | intersectBed -u -a stdin -b $AbinsR > $newAbins
 
     awk 'NR==FNR{a[$1]=$1;next}!a[$1]' $newAbins $genesfile > $non_newAbins
 
-    cat $newAbins $non_newAbins > $combined_newAbins 
+    cat $newAbins $non_newAbins > $combined_newAbins
 
 else
 
@@ -947,6 +1197,14 @@ else
 fi
 
 }
+
+
+# ------------------------------------------------------------------------------
+# STATISTICAL CORRECTION
+# ------------------------------------------------------------------------------
+# Apply Benjamini-Hochberg FDR correction for multiple testing
+# Converts p-values to q-values (FDR-adjusted)
+# ------------------------------------------------------------------------------
 
 # Benjamini-Hochberg Function
 BHcorrection() {
@@ -979,6 +1237,14 @@ EOF
 python BHcorrection.py
 
 }
+
+
+# ------------------------------------------------------------------------------
+# P-VALUE CALCULATION
+# ------------------------------------------------------------------------------
+# Calculate statistical significance of GI scores using t-test
+# Tests whether A and B interaction patterns are significantly different
+# ------------------------------------------------------------------------------
 
 calculate_pvalues() {
     local output_dir=$1
@@ -1016,8 +1282,23 @@ EOF
     wait
 }
 
+
+################################################################################
+#                    MAIN RESOLUTION PROCESSING LOOP                         #
+################################################################################
+
 # Define arrays to store filenames
 declare -a maxres_processed=0
+
+
+# ------------------------------------------------------------------------------
+# RESOLUTION PROCESSOR
+# ------------------------------------------------------------------------------
+# Main function to process a single resolution:
+# 1. Extract Hi-C data at specified resolution
+# 2. Calculate GI scores using current A/B state definitions
+# 3. Generate bedGraph output files
+# ------------------------------------------------------------------------------
 
 # Function to process a given resolution and generate output
 process_resolution() {
@@ -1043,7 +1324,7 @@ process_resolution() {
         mychr=$(awk -v var=$myiter 'NR==var {print $1}' $sizefile)
         mysize=$(awk -v var=$myiter 'NR==var {print $2}' $sizefile)
         rowbins=$(awk -v myres=$myres -v var=$myiter 'NR==var {print int($2/myres)+1}' $sizefile)
-        
+
         # Define temporary filenames
         outie="Crush_${myres}_${mychr}_tmp"
         outie2="Crush_${myres}_${mychr}_tmp2"
@@ -1058,7 +1339,7 @@ process_resolution() {
         if [ "$verbose" -gt 0 ]; then
             echo "Getting genic bins."
         fi
-        
+
         # Define more temporary filenames
         sortedbed="${tmpfiles}/genebins"
         pseudoB="${tmpfiles}/pseudoB"
@@ -1105,7 +1386,7 @@ process_resolution() {
             awk -v var=$myres -v mychrsize=$mysize -v newofile=$newofile -v newefile=$newefile '{b[$1]+=$4; print $0 >> newofile } END { for (i in b) print i"\t"b[i]/((mychrsize/var)-i) >> newefile }' &
         fi
 
-        wait 
+        wait
 
         if [ "$verbose" -gt 0 ]; then
             echo "Done dumping."
@@ -1151,7 +1432,7 @@ process_resolution() {
         RowZs=`echo "RowZs"`
         mawk 'NR==FNR { m[$1] = $2; d[$1] = $3; next} {if (d[$2] > 0) print $1 "\t" $2 "\t" ($3 - m[$2]) / (d[$2])}' $tmpmean $symmfile > $tmpfiles/$RowZs
 
-        # Create a zero's file 
+        # Create a zero's file
         zfile="zerofile"
         mawk -v var=$mychr '{if ($1 == var) print $0}' $sizefile | mawk -v wlkr=$myres '{for (i=0;i<=$2;i+=wlkr) print i"\t"i"\t0.1"}' > $tmpfiles/$zfile
 
@@ -1160,33 +1441,12 @@ process_resolution() {
 
     }
 
-    open_sem() {
-        mkfifo pipe-$$
-        exec 3<>pipe-$$
-        rm pipe-$$
-        local i=$1
-        for((;i>0;i--)); do
-            printf %s 000 >&3
-        done
-    }
-
-    run_with_lock() {
-        local x
-        read -u 3 -n 3 x && ((0==x)) || exit $x
-        (
-            "$@" &
-            local pid=$!
-            wait "$pid"
-            local exit_code=$?
-            printf '%.3d' "$exit_code" >&3
-        ) &
-    }
-
-    open_sem $cpu 
+    # Use the globally defined semaphore functions
+    open_sem $cpu  # Initialize semaphore with N tokens (N = CPU count)
 
     if [ "$whichchoice" == "o" ]; then
         for (( myiter=1; myiter<=$totchroms; myiter++ )); do
-            run_with_lock task $myiter
+            run_with_lock task $myiter  # Execute with semaphore lock (parallel processing)
         done
     fi
 
@@ -1202,7 +1462,7 @@ process_resolution() {
         key = $1"\t"$2"\t"$3;  # Create a unique key for each bin based on chr, start, and end
         sum[key] += $4;        # Sum the scores for each unique bin
         count[key]++;          # Count the occurrences for each bin
-    } 
+    }
     END {
         for (key in sum) {
             if (count[key] > 1) {
@@ -1214,7 +1474,7 @@ process_resolution() {
         }
     }' | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefull
 
-    wait 
+    wait
 
     rm Crush_${myres}_*_tmp
 
@@ -1232,7 +1492,7 @@ process_resolution() {
     # Re-evaluating both A and B bins for re-initialization for next resolution
 
     if [ "$countres" -gt 0 ]; then
-        # Creating a python output file 
+        # Creating a python output file
         python_output=`echo "shifter.bedgraph"`
 
         if [ "$coarse_res" -eq "$maxres" ] && [ "$coarse_res" != "$high_res" ]; then
@@ -1242,14 +1502,14 @@ process_resolution() {
             coarse_res_infile=`echo "$coarse_infile"`
 
         else
-            
+
             # Shifter Input files for the specified resolutions
-            high_res_infile=`echo "$outiefull"` 
+            high_res_infile=`echo "$outiefull"`
             coarse_res_infile=`echo "$python_output"`
 
         fi
 
-        # Conditional checking for multiples of resolutions for shifter 
+        # Conditional checking for multiples of resolutions for shifter
         # If coarseres is divisible by highres, use these resolutions for shifter as coarse and high
         if [[ "$(( $coarse_res % $high_res ))" -eq 0 ]]; then
 
@@ -1318,7 +1578,7 @@ reprocess_resolutions_with_shifter() {
             local sortedbed_reprocess="genebins_reprocess_${mychr}_${prev_res}"
             local pseudoB_reprocess="pseudoB_reprocess_${mychr}_${prev_res}"
             local outie_reprocess="Crush_reprocess_${prev_res}_${mychr}_tmp"
-            
+
             reprocesstmpfiles=`echo "ABreprocesstmpfiles_""$mychr""_""$prev_res"`
 
             #Creating tmp directory
@@ -1337,13 +1597,13 @@ reprocess_resolutions_with_shifter() {
             # Assuming the existence of process_oppocheck_statement function with correct parameters
             process_oppocheck_statement $sortedbed_reprocess $pseudoB_reprocess $outie_reprocess $mychr $prev_res "ABtmpfiles_${mychr}_${prev_res}" "ABreprocesstmpfiles_${mychr}_${prev_res}"
 
-            wait 
+            wait
 
             if [ $prev_res -eq $minres ] && [ $pcalculation -gt 0 ]; then
                 pscores_reprocess="ttest_reprocess_${prev_res}_${mychr}_tmp"
                 calculate_pvalues "ABreprocesstmpfiles_${mychr}_${prev_res}" $mychr $prev_res $pscores_reprocess
-            fi            
-        done    
+            fi
+        done
 
         # Merge the reprocessed CRUSH files
         echo -ne "Merging individual chromosome files\033[0K\r"
@@ -1354,7 +1614,7 @@ reprocess_resolutions_with_shifter() {
             key = $1"\t"$2"\t"$3;  # Create a unique key for each bin based on chr, start, and end
             sum[key] += $4;        # Sum the scores for each unique bin
             count[key]++;          # Count the occurrences for each bin
-        } 
+        }
         END {
             for (key in sum) {
                 if (count[key] > 1) {
@@ -1365,17 +1625,17 @@ reprocess_resolutions_with_shifter() {
                 }
             }
         }' | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefull_reprocess
-        
+
         wait
 
         rm Crush_reprocess_${prev_res}_*_tmp
 
         if [ $prev_res -eq $minres ] && [ $pcalculation -gt 0 ]; then
-        
+
             outiefullPval_reprocess="pvalues_Re_${prev_res}.bedgraph"
             echo "Resolution: $prev_res for Resolution output and minres is : $minres"
             cat ttest_reprocess_${prev_res}_*_tmp | grep -v -i nan | sort -k 1,1 -V -k 2bn,2b -k 3bn,3b --stable > $outiefullPval_reprocess
-            wait 
+            wait
         fi
 
         if [ "$prev_res" == "$maxres" ]; then
@@ -1400,12 +1660,12 @@ reprocess_resolutions_with_shifter() {
                 highres_infile_reprocess=`echo "$outiefull_reprocess"`
                 coarse_res_infile_reprocess=`echo "$coarse_infile_reprocess"`
             else
-                highres_infile_reprocess=`echo "$outiefull_reprocess"` 
+                highres_infile_reprocess=`echo "$outiefull_reprocess"`
                 coarse_res_infile_reprocess=`echo "$python_output"`
 
             fi
 
-            # Conditional checking for multiples of resolutions for shifter 
+            # Conditional checking for multiples of resolutions for shifter
             # If coarseres is divisible by highres, use these resolutions for shifter as coarse and high
             if [[ "$(( $coarse_res_reprocess % $highres_reprocess ))" -eq 0 ]]; then
                 crtmp_reprocess=$coarse_res_reprocess
@@ -1514,8 +1774,45 @@ fi
 wait
 
 if [ $isfasta == "1" ]; then
-    echo "Now, calculating the gc content:"
-    bedtools nuc -fi $fastafile -bed $resbins > $gcfile
+    echo "Now, calculating the gc content in parallel by chromosome:"
+
+    # Split resbins by chromosome
+    mkdir -p gc_tmp
+    awk '{print >> "gc_tmp/"$1".bed"; close("gc_tmp/"$1".bed")}' $resbins
+
+    # Process each chromosome in parallel
+    open_sem $cpu  # Initialize semaphore with N tokens (N = CPU count)
+
+    for chrom in $(cut -f 1 $sizefile); do
+        run_with_lock bash -c "  # Execute with semaphore lock (parallel processing)
+            chrom='${chrom}'
+            fastafile='${fastafile}'
+            if [ -f gc_tmp/\${chrom}.bed ]; then
+                bedtools nuc -fi \"\${fastafile}\" -bed gc_tmp/\${chrom}.bed > gc_tmp/\${chrom}.gc 2> gc_tmp/\${chrom}.err
+                if [ \$? -ne 0 ]; then
+                    echo \"Error: bedtools nuc failed for chromosome \${chrom}\" >&2
+                    cat gc_tmp/\${chrom}.err >&2
+                fi
+            fi
+        "
+    done
+
+    wait  # Wait for all bedtools jobs to complete
+
+    # Check if we got results for all chromosomes
+    expected_files=$(cut -f 1 $sizefile | wc -l)
+    actual_files=$(ls gc_tmp/*.gc 2>/dev/null | wc -l)
+
+    if [ "$actual_files" -lt "$expected_files" ]; then
+        echo "Warning: Only got GC content for $actual_files chromosomes out of $expected_files expected"
+    fi
+
+    # Merge results
+    cat gc_tmp/*.gc > $gcfile
+
+    # Clean up temporary files
+    rm -rf gc_tmp
+
     wait
 
     # Created a %G/%G+%A file in 7th column
@@ -1606,25 +1903,54 @@ else
     echo "Binned files generated for all chromosomes: $genesbinned, $gcbinned."
 
     # Default behavior when no eigenfile is provided
+    # Parallelize eigenvector generation using semaphore (same pattern as chromosome processing)
+    open_sem $cpu  # Initialize semaphore with N tokens (N = CPU count)
+
     for chrom in $(cut -f 1 $sizefile); do
-        chrom_size=$(awk -v chr="$chrom" '$1 == chr {print $2}' "$sizefile")
-        if [ -z "$chrom_size" ]; then
-            echo "Error: Chromosome size for $chrom not found in $sizefile. Skipping..."
-            continue
-        fi
+        run_with_lock bash -c "  # Execute with semaphore lock (parallel processing)
+            chrom='$chrom'
+            sizefile='$sizefile'
+            gcbinned='$gcbinned'
+            hicpath='$hicpath'
+            eigenres='$eigenres'
+            genesfile='$genesfile'
 
-        # Filter out binned data for the current chromosome
-        gcbinned_chr="gcbinned_${chrom}.bed"
+            chrom_size=\$(awk -v chr=\"\$chrom\" '\$1 == chr {print \$2}' \"\$sizefile\")
+            if [ -z \"\$chrom_size\" ]; then
+                echo \"Error: Chromosome size for \$chrom not found in \$sizefile. Skipping...\"
+                exit 0
+            fi
 
-        awk -v chr=$chrom '$1 == chr' "$gcbinned" > "$gcbinned_chr"
+            # Filter out binned data for the current chromosome
+            gcbinned_chr=\"gcbinned_\${chrom}.bed\"
 
-        if [[ ! -s $gcbinned_chr ]]; then
-            echo "Error: Binned files for chromosome $chrom are empty. Skipping..."
-            continue
-        fi
+            awk -v chr=\$chrom '\$1 == chr' \"\$gcbinned\" > \"\$gcbinned_chr\"
 
-        generateEV "$hicpath" "$chrom" "$eigenres" "$genesfile" "$gcbinned_chr" "$chrom_size"
+            if [[ ! -s \$gcbinned_chr ]]; then
+                echo \"Error: Binned files for chromosome \$chrom are empty. Skipping...\"
+                exit 0
+            fi
+
+            generateEV \"\$hicpath\" \"\$chrom\" \"\$eigenres\" \"\$genesfile\" \"\$gcbinned_chr\" \"\$chrom_size\"
+        "
     done
+
+    wait  # Wait for all eigenvector generation jobs to complete
+
+    # Verify we got eigenvector files for all chromosomes
+    echo "Checking eigenvector generation completion..."
+    missing_evs=0
+    for chrom in $(cut -f 1 $sizefile); do
+        if [ ! -f "best_Eigen_${chrom}.bedgraph" ]; then
+            echo "Warning: Missing eigenvector file for chromosome ${chrom}"
+            missing_evs=$((missing_evs + 1))
+        fi
+    done
+
+    if [ $missing_evs -gt 0 ]; then
+        echo "Warning: $missing_evs chromosomes are missing eigenvector files"
+        echo "Continuing anyway, but results may be incomplete..."
+    fi
 
     # Concatenate best eigenvectors for full genome BEDGraph
     concatenate_best_pcs
@@ -1658,20 +1984,20 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
 
     # Call the function for the current resolution
     process_resolution $myres $genesblock
- 
+
     if [ $i -gt 0 ]; then
         reprocess_resolutions_with_shifter $myres $i 1
 
         #Final Processing of bedgraphs
 
-        finaloutie=`echo "$outpre""mergedCrush_""$myres"".bedgraph"`     
+        finaloutie=`echo "$outpre""mergedCrush_""$myres"".bedgraph"`
         Crush_todelete=`echo "Crush_todelete_""$myres""_reprocess"`
 
         finalpoutie=`echo "$outpre""mergedqvalue_""$myres"".bedgraph"`
         pval_todelete=`echo "pval_todelete_""$myres""_reprocess"`
 
         cat Crush_Re*.bedgraph | mawk -v minr=$myres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4/int($3-$2)}' | mawk -v mr=$myres '{for (i=$2;i<$3;i++) print $1":"int(i)*mr":"(int(i)+1)*mr"\t"$4}' | mawk '{c1[$1] += $2; c2[$1]++} END {for (i in c1) print i"\t"c1[i]/c2[i]}' | sed 's/:/\t/g' > $finaloutie 2> smallerrors
-        
+
         if [ $myres -eq $minres ]; then
             cat pvalues_Re*.bedgraph | mawk -v minr=$myres '{print $1"\t"$2/minr"\t"$3/minr"\t"$4}' | mawk -v mr=$myres '{for (i=$2;i<$3;i++) print $1":"int(i)*mr":"(int(i)+1)*mr"\t"$4}' | awk '{c1[$1] += log($2)/log(10); c2[$1]++} END {for (i in c1) print i"\t"10**(c1[i]/c2[i])}' | sed 's/:/\t/g' | sort -k 1,1 -V -k 2bn,2b --stable > $finalpoutie 2> smallerrors
         fi
@@ -1724,7 +2050,7 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
 
         cat $finaloutie | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | sort -k 1,1 -V -k 2bn,2b --stable | mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' > $finaloutie2
         mv $finaloutie2 $finaloutie
-        
+
         # Apply smoothing if required
         if [ "$smoothing" -gt 0 ]; then
             echo "Smoothing Function is turned on"
@@ -1733,9 +2059,9 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
             rm $smoother tmp2_shiftedleft tmp1_shiftedright  # Clean up smoothing-related temporary files
         fi
 
-        if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then 
+        if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then
             filt_todelete=`echo "tmpcrushfiltered_""$myres""_reprocess"`
-            
+
             # Perform intersection with sizeBed and format for visualization
             cat $finaloutiefilt | grep -v track | intersectBed -wa -a stdin -wb -b $sizeBed | \
                 awk '{if ($3 <= $7) print $0}' | cut -f 1-4 | \
@@ -1747,7 +2073,7 @@ for (( i=0; i<${#res_array[@]}; i++ )); do
 
         # Move final outputs to the parent directory
         mv $finaloutie ../
-        
+
         if [ $(bc <<< "$qthresh > 0") -eq 1 ] && [ $pcalculation -eq 1 ] && [ $myres -eq $minres ]; then
             mv $finaloutiefilt ../
         fi
@@ -1789,60 +2115,6 @@ cd ../
 if [ "$cleanup" -gt 0 ]; then
     echo "cleaning up"
     rm -r $crushdir
-fi
-
-# Final Shifter
-if [ "$reshift" -gt 0 ]; then
-
-    echo "Going into Final Shifter"
-
-    # Final shifter
-    for (( i=1; i<${#res_array[@]}; i++ )); do
-
-        myres=${res_array[$i]}
-
-        if [ $i -eq 1 ]; then
-            echo "almost done..."
-            oldres=`echo "$myres"`
-            oldinnie=`echo "$outpre""mergedCrush_""$myres"".bedgraph"`
-        else
-            newres=`echo "$myres"`
-            newinnie=`echo "$outpre""mergedCrush_""$myres"".bedgraph"`
-            newoutie=`echo "mergedCrush2_""$myres"".bedgraph"`
-
-            # Run the shifter function
-            run_endshifter $newres $oldres $newinnie $oldinnie $newoutie
-
-            # Check and run smoothing if required
-            if [ "$smoothing" -gt 0 ]; then
-                echo "Smoothing Function is turned on"
-                finalshifter="finalshifter.bedgraph"
-                run_smoothing $newoutie $finalshifter
-            fi 
-
-            # Updating the resolution
-            oldres=`echo "$myres"`
-            oldinnie=`echo "mergedCrush2_""$myres"".bedgraph"`
-
-            wait
-
-            mawk '{if (NR == 1) print "track type=bedgraph visibility=full color=204,0,0 altColor=0,0,0 viewLimits=-150:150 autoScale off\n"$0; else print $0}' $newoutie > $newinnie    
-            wait
-
-        fi
-
-    done
-    
-    # Clean up smoothing files if smoothing was applied
-    if [ "$smoothing" -gt 0 ]; then
-        rm $finalshifter
-        rm tmp2_shiftedleft
-        rm tmp1_shiftedright
-    fi 
-
-    # Optionally clean up merged bedgraphs
-    rm mergedCrush2_*.bedgraph
-
 fi
 
 echo "Finished! Check the output."
