@@ -57,7 +57,7 @@ docker run --rm -it \
 docker run --rm -it \
   -v $(pwd):/data \
   -w /data \
-  crush:1.0 \
+  crush:1.1 \
   -i HFFc6.hic -g hg19.sizes -r 10000
 
 ## Reproducibility Guarantee
