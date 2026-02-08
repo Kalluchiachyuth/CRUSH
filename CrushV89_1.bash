@@ -6,7 +6,7 @@
 #                                                                              #
 ################################################################################
 #
-# CRUSH (Compartment Recognition Using Shifted Hierarchies) analyzes Hi-C data
+# CRUSH (Compartmental Refinement for Ultraprecise Stratification of Hi-C) analyzes Hi-C data
 # to identify A/B chromatin compartments at multiple resolutions.
 #
 # Key Features:
