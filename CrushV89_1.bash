@@ -87,13 +87,6 @@ function cursorBack() {
 #
 # Token-based semaphore system for controlling parallel job execution.
 #
-# Fixes applied:
-#   - Pipe name is now unique per call (PID + RANDOM) so repeated open_sem
-#     calls in the same session don't collide on the same pipe name.
-#   - A failing worker no longer calls "exit $x" which would kill the entire
-#     parent shell. Errors are logged and a clean token is returned so the
-#     pool stays full and other chromosomes continue processing.
-#
 ################################################################################
 
 open_sem() {
