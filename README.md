@@ -1,127 +1,209 @@
-![](/examples/figures/CRUSH_logo.jpg)
-# CRUSH
+# CRUSH — Compartmental Refinement for Ultraprecise Stratification in Hi-C
 
+<p align="center">
+  <img src="figures/CRUSH_logo.jpg" alt="CRUSH Logo" width="300"/>
+</p>
 
-### What is CRUSH?
-CRUSH (**C**ompartmental **R**efinement for **U**ltraprecise **S**tratification within **H**i-C) is a tool that can identify fine-scale compartments in chromatin conformation matrices. It has successfully identified compartments in Hi-C, Micro-C, and Single-Cell Hi-C. CRUSH specializes in identifying fine-scale compartments at high resolutions with significantly lower read depth than other compartment calling tools.  
-#### Visual Algorithmic Explanation:
-![CRUSH](/examples/figures/CRUSHdiag.png)
+<p align="center">
+  <a href="https://pypi.org/project/CRUSH"><img src="https://img.shields.io/pypi/v/CRUSH.svg" alt="PyPI version"/></a>
+  <a href="https://github.com/JRowleyLab/CRUSH/blob/main/LICENSE"><img src="https://img.shields.io/github/license/JRowleyLab/CRUSH" alt="License"/></a>
+  <img src="https://img.shields.io/badge/python-3.8%2B-blue" alt="Python 3.8+"/>
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey" alt="Platform"/>
+</p>
 
-### How to install CRUSH
+---
 
-_Dependencies_
-```
-BASH environment 
-bedtools (intersectBed)
-cooler (if using .mcool files)
-python3
-hicstraw (if working with .hic files)
-numpy
-scipy
-statsmodels
-tqdm
-```
+CRUSH **(Compartmental Refinement for Ultraprecise Stratification within Hi-C)** is a command-line tool that identifies fine-scale A/B chromatin compartments from Hi-C contact matrices. It has successfully identified compartments in Hi-C, Micro-C, and Single-Cell Hi-C data, and specializes in calling compartments at **high resolutions with significantly lower read depth** than other compartment calling tools.
 
-After these dependencies are installed, simply clone this repository. 
+> **Manuscript in preparation** — JRowleyLab, PI: Jordan Rowley
 
-To run CRUSH, you may want to make the tool directly executable. e.g. sudo chmod +x CRUSH/CRUSH_v1.0
+---
 
+## Table of Contents
 
-### How to use CRUSH
+- [How It Works](#how-it-works)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Input Files](#input-files)
+- [Output Files](#output-files)
+- [Key Parameters](#key-parameters)
+- [Test Dataset](#test-dataset)
+- [Dependencies](#dependencies)
+- [Citation](#citation)
+- [Contact](#contact)
 
-_Required files:_
+---
 
-**HIC**
+## How It Works
 
-This can be either a .hic file (from juicer) or a .mcool file (from cooler). 
+<p align="center">
+  <img src="figures/CRUSHdiag.png" alt="CRUSH workflow diagram" width="650"/>
+</p>
 
-**SIZEFILE**
+At its core, CRUSH asks a simple question for every genomic bin: **does this bin interact more with A-type regions (iA) or B-type regions (iB)?**
 
-This is a two-column tab-delimited file with chromosome names and sizes.
-(Format: Chr Sizes)
+The algorithm walks from coarse resolutions down to your target resolution, using each level to refine A/B compartment assignments at the next finer level:
 
-![image](https://github.com/user-attachments/assets/918b76c4-2939-4dc6-8a2d-91fc398ee703)
+1. **Eigenvector initialization** — Computes principal components of the Hi-C contact matrix (or accepts a user-supplied eigenvector) to define initial A (iA) and B (iB) states.
+2. **CRUSH score calculation** — At each resolution, calculates a Genome Interaction (GI) score per bin reflecting how much more it contacts iA regions versus iB regions.
+3. **Compartment reclassification** — After each resolution pass, A/B bin assignments are updated based on the new scores, then used to seed the next finer resolution.
+4. **Resolution walking with midpoint shifting** — A rolling-window alignment step adjusts finer-resolution scores against the coarser baseline, removing systematic biases between resolution levels.
+5. **Statistical filtering** — Applies Benjamini–Hochberg FDR correction and outputs a q-value filtered bedGraph.
 
-**ABED**
+**A compartments** → positive CRUSH score (gene-rich, open chromatin, active transcription)  
+**B compartments** → negative CRUSH score (gene-poor, closed chromatin, transcriptionally silent)
 
-This file sets the initialization A states and can be any bed file with at least 3 tab-separated columns. We typically use genes, but use your imagination. For example, ChIP-seq peaks for an active mark should work well also. 
-(Format: Chr Start End "Optional Genes")
-![image](https://github.com/user-attachments/assets/a22b81a8-8602-4878-93b3-d1a1c3ac267a)
+> Unlike eigenvector-based methods, **you never need to flip CRUSH scores** — A is always positive and B is always negative.
 
+---
 
-**BBED**
+## Installation
 
-This file sets the initialization B states. It can be a bed file or it can be a fasta file. It should simply correspond to something that correlates with the inactive compartment. If you specify a fasta file, we will use gc content to calculate. This can slow it down a bit, but works well.
-
-**PLEASE ENSURE THAT THE CHROMOSOME NAMES MATCH BETWEEN ALL OF YOUR FILES.**
-Example: "Chr1" / "chr1" / "CHR1" / "1". (Keep it consistent across all the input files).
- 
-
-### Example usage
-
-CRUSH_v1.0 -i Myfile.hic -g hg38.sizes -a hg38_genes.bed -b hg38.fasta -r 1000 -cpu 23 -o output_prefix
-
-### Example usage with -m option to choose the initial resolution for resolution walking. 
-If a hic file has resolutions (1mb,500kb,250kb,100kb,50kb,25kb,10kb,5kb,1kb), CRUSH by default initializes 1mb as the primary resolution for resolution walking. When -m {Resolution} is specified, it initializes based off of the -m resolution. For Exampe: -m 50kb , CRUSH is run with 50kb as its primary resolution for resolution walking. 
-
-CRUSH_v1.0 -i Myfile.hic -g hg38.sizes -a hg38_genes.bed -b hg38.fasta -r 1000 -cpu 23 -o output_prefix -m 100000 (If you want CRUSH to start processing the hic file from 100kb resolution. It will ignore the other coarser resolutions beyond 100kb.)
-
-
-CRUSH has other optional parameters. We do not recommend that you change these unless you are confident in what they do. 
-
-CRUSH_v1.0 --help
-
-```
-usage : CRUSH_vX.X -i HIC  -g SIZEFILE -a ABED -b BBED | FASTA -r FINERESOLUTION [-cpu CPU] [-w WINDOW] [-h]
-Use option -h|--help for more information
-
-CRUSH will create a temporary folder in your current directory, so make sure you have write access to your current directory.
-
------------------------------------------
-OPTIONS:
--h|--help                :  Display this help menu
-
---------------------------REQUIRED PARAMETERS------------------
--i|--hic                 :  Input .hic/.cooler/.mcool file by specifying the path. (e.g., '/path/to/ file.hic or file.mcool or file.cooler)
--g|--genomesize              :  Specify path to a chromosome size file with two columns corresponding to chromosome and size respectively.
--a|--initialA                :  Specify path to a bed file with the regions for initializing A. For example, gene annotations e.g. hg19genes.bed.
--b|--initialB                :  Specify path to either a fasta file or to a bed file for initializing B. If you specify a fasta file, we will calculate intialB from gc content.
--r|--res                 :  Resolution desired.
----------------
-
---------------------------OPTIONAL PARAMETERS------------------
--o|--outpre              :  Set this if you want to specify a prefix for the output files
--c|--cpu                 :  Set the value for cpu number of threads to use. Default is 1.
--n|--no-merge            :  Set this option to 1 to keep each resolution as a separate output file. Default is to merge in a way that provides maximum resolution.
--A|--adjustment          :  Set this option to 1 to include a adjustment of CRUSH values at the end. This adjustment shifts values based on any internal skewing of the data. Do not set this if using CRUSH to compare between two Hi-C maps.
--d|--distance            :  Using this option will filter out the distance next to the diagonal. Default is 0 which considers everything.
--u|--upperlim            :  The upperlimit of the distance away from the diagonal to consider. Default is 0 so that it considers the whole chromosome.
--t|--trackline           :  Set to 0 if you want to disable printing a bedgraph trackline header.
--T|--threshold           :  Distance normalized threshold to filter out extreme outliers.
--k|--keeptracks          :  Set to 1 in order to keep separate A and B tracks for the probability of interacting with bed file vs other regions.
--l|--lowerthresh         :  Set the value for lowerthresh.
--w|--window              :  Set to perform a sliding window average of the scores at individual resolutions. Default is to calculate the appropriate window based on sequencing depth. Set to 1 to remove sliding window.
--v|--verbose             :  Set to 1 to enable verbose mode showing extensive messages.
--S|--switch              :  Set this option to 0 for bypassing re-initialization. Default is 1.
--C|--cleanup             :  Set the value to 0 to keep the temporary files. Default is 1.
--E|--endZ                :  Set the value for endZ. 
--x|--exclbed             :  Set the value for exclbed.
--q|--qvalue              :  Set the qvalue threshold. default 0.05. Set to 0 to not perform qvalue filtering. The qvalues will be reported as a separate track regardless.
--u|--use                 :  Whether to use of overwrite existing GI tracks previously calculated at individual resolutions. Set this option to u to use previous calculations. Default is to recalculate. This option is useful for merging resolutions.
--f|--tmpfolder           :  Set this if you want to name the temporary folder yourself. Make sure it doesn't already exist in your current working directory. Default is to name it CRUSHtmp with a random number.
--m|--maxres              : Set this to the coarsest resolution you want to consider. Default is to check every resolution present in the .hic or .mcool file between 2500000 and your desired resolution to inform each other.
+```bash
+pip install CRUSH
 ```
 
-### Output Files
+We recommend setting up a dedicated conda environment:
 
-CRUSH's main output is 4 files, each of which starts with the prefix that you specified with the -o option. The file name endings are:
+```bash
+conda create -n crush_env python=3.10
+conda activate crush_env
+conda install -c bioconda bedtools
+pip install CRUSH hic-straw cooler numpy scipy pandas statsmodels tqdm
+```
 
-CRUSHparameters.txt: Contatins a simple record of the parameters and files that you used.
+### Dependencies
 
-mergedCrush_{resolution}.bedgraph (resolution is replaced with whatever you specified with the -r option): This is the main output file containing the scores for A (positive) and B (negative). Note that unlike eigenvector, you do not need to flip these calls, because A is always positive and B is always negative.
+| Tool | Purpose | Install |
+|---|---|---|
+| Python ≥ 3.8 | Runtime | [python.org](https://www.python.org) |
+| bedtools | Genomic intersections | `conda install -c bioconda bedtools` |
+| mawk | Fast text processing | `sudo apt install mawk` / `brew install mawk` |
+| hic-straw | Read `.hic` files | `pip install hic-straw` |
+| cooler | Read `.mcool` files | `pip install cooler` |
+| numpy / scipy / pandas | Numerical computing | `pip install numpy scipy pandas` |
+| statsmodels | FDR correction | `pip install statsmodels` |
+| tqdm | Progress bars | `pip install tqdm` |
 
-mergedqvalue_{resolution}.bedgraph: This bedgraph track contains an estimated q-value for each bin's score.
+### Verify installation
 
-mergedCrush_{resolution}_qfiltered.bedgraph: This bedgraph track contains only scores that meet the qvalue threshold. However, the thresholding currently seems overly stringent, and we've obtained excellent results without this filter.  
+```bash
+crush --help
+```
 
-While running, CRUSH will also create a temporary directory. The default is to name it CRUSHtmp_[randomnumber], but you can specify a name for this directory using the -f option. After completing, CRUSH will remove this directory by default, however, if you want to keep all the temporary files, you can use -C 0.
+---
+
+## Quick Start
+
+```bash
+crush \
+  -i data.hic \
+  -g hg38.sizes \
+  -a hg38_genes.bed \
+  -b hg38.fa \
+  -r 10000 \
+  -c 8 \
+  -o output_prefix_
+```
+
+> ⚠️ **Important:** Chromosome names must match exactly across your Hi-C file, sizes file, gene BED file, and FASTA/B-state BED file (e.g., all use `chr1` or all use `1`). Mismatched chromosome names are the most common cause of empty or incorrect output.
+
+---
+
+## Input Files
+
+| Flag | Description |
+|---|---|
+| `-i` | Hi-C file (`.hic` from Juicer or `.mcool` from cooler). Local path or HTTPS URL. |
+| `-g` | Chromosome sizes file — two tab-separated columns: `chr_name` and `size` (bp). No header. |
+| `-a` | BED file (≥ 3 columns) for A-compartment initialization. Gene annotations work well. ChIP-seq peaks for an active histone mark (e.g., H3K27ac) also work. |
+| `-b` | FASTA file (GC content used to seed B compartments) **or** a BED file of known B-compartment regions. Using FASTA is recommended but slightly slower. |
+| `-r` | Target resolution in base pairs (e.g., `10000` for 10 kb). Must exist in your Hi-C file. |
+| `-e` | *(Optional)* Pre-computed eigenvector bedGraph (4 columns: chr, start, end, value). Positive = A, Negative = B. Skips automatic eigenvector calculation. |
+
+---
+
+## Output Files
+
+CRUSH produces four output files, each prefixed with whatever you supply via `-o`:
+
+| File | Description |
+|---|---|
+| `{prefix}CRUSHparameters.txt` | Record of all parameters used. Keep this for reproducibility. |
+| `{prefix}mergedCrush_{res}.bedgraph` | **Main output.** CRUSH scores for every bin. Positive = A compartment, Negative = B compartment. Unlike eigenvectors, scores never need to be flipped. |
+| `{prefix}mergedqvalue_{res}.bedgraph` | Estimated q-value (BH-corrected) for each bin's score. |
+| `{prefix}mergedCrush_{res}_qfiltered_reprocess.bedgraph` | CRUSH scores filtered to bins passing the q-value threshold. Note: this filter can be overly stringent — excellent results are often obtained from the unfiltered `mergedCrush` file. |
+
+All bedGraph files include a UCSC track header for direct loading into genome browsers (IGV, UCSC, WashU).
+
+While running, CRUSH creates a temporary working directory named `CRUSHtmp_[randomnumber]` in your current directory. This is removed automatically when the run completes. To keep it (e.g., for debugging), use `-C 0`. You can also name it yourself with `-f`.
+
+---
+
+## Key Parameters
+
+| Flag | Default | Description |
+|---|---|---|
+| `-c` | `1` | Number of CPU threads. Set to number of chromosomes or available cores, whichever is smaller. |
+| `-o` | *(none)* | Output file prefix. |
+| `-N` | `NONE` | Normalization: `NONE`, `VC`, `VC_SQRT`, `KR`, `SCALE`. |
+| `-m` | `2500000` | Coarsest resolution to start walking from. |
+| `-Z` | `100000` | Resolution for eigenvector calculation (100 kb recommended). |
+| `-w` | auto | Sliding window size (bins) for score smoothing. Set to `1` to disable. |
+| `-q` | `0.05` | Q-value threshold for filtered output. Set to `0` to disable filtering. |
+| `-s` | `0` | Enable boundary smoothing (`1` = on). |
+| `-A` | `0` | Adjust score distribution. **Do not use when comparing samples.** |
+| `-C` | `1` | Clean up temp files after run (`0` = keep). |
+| `-v` | `0` | Verbose output (`1` = on). |
+
+For the complete parameter reference, see the [User Manual](MANUAL.md).
+
+---
+
+## Test Dataset
+
+A small test dataset covering chromosomes 17–19 of hg19 is provided in `examples/TestData/`:
+
+| File | Description |
+|---|---|
+| `hg19_c17_18_19_1kb.hic.gz` | Hi-C contact file |
+| `hg19_c17_18_19_genes.bed.gz` | Gene annotations for A-state initialization |
+| `hg19_c17_18.fa.gz` | Genome FASTA for GC-based B-state initialization |
+| `hg19_c17_18.fa.fai` | FASTA index |
+| `hg19_c17_18_19.sizes.gz` | Chromosome sizes |
+| `Eigen_100kb_c17_18_19.bedgraph.gz` | Pre-computed eigenvector (optional `-e` input) |
+| `Bbins_hg19_c17_18_19.bed.gz` | Pre-computed B-bins (alternative to FASTA for `-b`) |
+
+### Run the test
+
+```bash
+# Decompress
+gunzip examples/TestData/*.gz
+
+# Run with FASTA-based B initialization
+crush \
+  -i examples/TestData/hg19_c17_18_19_1kb.hic \
+  -g examples/TestData/hg19_c17_18_19.sizes \
+  -a examples/TestData/hg19_c17_18_19_genes.bed \
+  -b examples/TestData/hg19_c17_18.fa \
+  -r 10000 \
+  -c 4 \
+  -o test_
+```
+
+Expected output: `test_mergedCrush_10000.bedgraph`, `test_mergedqvalue_10000.bedgraph`, and `test_mergedCrush_10000_qfiltered_reprocess.bedgraph`.
+
+Load `test_mergedCrush_10000.bedgraph` into IGV or the UCSC browser to verify the A/B compartment pattern on chr17–19.
+
+---
+
+## Citation
+
+Manuscript in preparation. If you use CRUSH in your research, please check back for the citation or contact us directly.
+
+---
+
+## Contact
+
+**JRowleyLab** | PI: Jordan Rowley  
+For questions, bug reports, or feature requests, please open a [GitHub Issue](https://github.com/JRowleyLab/CRUSH/issues).
