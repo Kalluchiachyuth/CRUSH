@@ -1,0 +1,4 @@
+# Place the following files here (all in no-chr format, e.g. '1' not 'chr1'):
+#   hg38.chrom.sizes
+#   hg38_genes.bed
+#   hg38_Bbins.bed   (pre-computed at 500bp resolution)

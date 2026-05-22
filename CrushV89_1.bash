@@ -50,7 +50,7 @@ trackline=1
 threshold=10
 totreads=0
 lowerthresh=0
-window=0
+window=5
 verbose=0
 switch=1
 qthresh=0.05
@@ -65,6 +65,7 @@ coarsestres=2500000
 pcalculation=1
 smoothing=0
 eigenres=100000
+genomebuild=0
 
 
 ################################################################################
@@ -125,8 +126,8 @@ run_with_lock() {
 ################################################################################
 
 function usage {
-    echo -e "\n\nusage : crush -i HIC  -g SIZEFILE -a ABED -b BBED | FASTA -r FINERESOLUTION [-e EIGENVECTORBED] [-cpu CPU] [-w WINDOW] [-h]"
-    echo -e "Use option -h|--help for more information"
+    echo -e "\n\nusage : crush -i HIC -r RESOLUTION { -gb GENOMEBUILD | -g SIZEFILE -a ABED -b BBED|FASTA } [-c CPU] [-h] [--advanced-help]"
+    echo -e "Use option -h|--help for basic help, --advanced-help for all options"
 }
 
 function help {
@@ -150,6 +151,65 @@ function help {
     echo "-------------"
     echo ""
     echo "  -h, --help              Display this help menu"
+    echo "  --advanced-help         Display all options including advanced parameters"
+    echo ""
+    echo "================================================================================"
+    echo ""
+
+    echo "ALWAYS REQUIRED:"
+    echo "----------------"
+    echo "  -i, --hic FILE          Input Hi-C file (.hic or .mcool format)"
+    echo "  -r, --res VALUE         Resolution in bp  (e.g. 10000 for 10kb)"
+    echo "  -c, --cpu NUMBER        CPU threads  (default: 1)"
+    echo ""
+    echo "================================================================================"
+    echo ""
+    echo "REFERENCE FILES — choose ONE path:"
+    echo ""
+    echo "  PATH A  -gb  (supported builds: hg19, hg38, mm10, mm9 | res >= 500bp)"
+    echo "  -----------------------------------------------------------------------"
+    echo "  -gb, --genomebuild BUILD"
+    echo "      Auto-downloads chrom.sizes, genes.bed, and Bbins.bed."
+    echo "      -g, -a, and -b are NOT needed."
+    echo "      Example:  crush -i data.hic -gb hg38 -r 10000 -c 8"
+    echo ""
+    echo "  PATH B  -g -a -b  (any genome | any resolution)"
+    echo "  -----------------------------------------------------------------------"
+    echo "  -g, --genomesize FILE   Chromosome sizes file (chr_name  size)"
+    echo "  -a, --initialA   FILE   Gene annotations BED  (initialises A compartments)"
+    echo "  -b, --initialB   FILE   Bbins BED or genome FASTA"
+    echo "                          Use FASTA when res < 500bp (GC recalculated)"
+    echo "      Example:  crush -i data.hic -g hg19.sizes -a genes.bed -b genome.fa -r 10000 -c 8"
+    echo ""
+    echo "================================================================================"
+    echo ""
+    echo "  Run --advanced-help for output control, analysis tuning, and all other options."
+    echo ""
+    echo "================================================================================"
+}
+
+function advanced_help {
+    usage;
+    echo ""
+    echo "================================================================================"
+    echo "                         CRUSH - Hi-C Compartment Analysis"
+    echo "         Compartmental Refinement for Ultraprecise Stratification in Hi-C"
+    echo "================================================================================"
+    echo ""
+    echo "CRUSH analyzes Hi-C data to identify chromatin compartments at multiple"
+    echo "resolutions. It will create a temporary folder in your current directory,"
+    echo "so please ensure you have write access."
+    echo ""
+    echo "For full documentation, visit: https://github.com/JRowleyLab/CRUSH/"
+    echo ""
+    echo "================================================================================"
+    echo ""
+
+    echo "GETTING HELP:"
+    echo "-------------"
+    echo ""
+    echo "  -h, --help              Display basic help menu"
+    echo "  --advanced-help         Display this full help menu"
     echo ""
     echo "================================================================================"
     echo ""
@@ -160,6 +220,9 @@ function help {
     echo "  -i, --hic FILE          Input Hi-C file (.hic, .cooler, or .mcool format)"
     echo "                          Example: '/path/to/file.hic'"
     echo ""
+    echo "  -r, --res VALUE         Desired resolution for analysis"
+    echo "                          Example: 10000 (for 10kb resolution)"
+    echo ""
     echo "  -g, --genomesize FILE   Chromosome size file (2 columns: chr_name, size)"
     echo "                          Example: 'hg19.chrom.sizes'"
     echo ""
@@ -169,20 +232,12 @@ function help {
     echo "  -b, --initialB FILE     BED or FASTA file for initializing B compartments"
     echo "                          If FASTA: initializes from GC content"
     echo ""
-    echo "  -e, --eigenfile FILE    Eigenfile to initialize A and B states (optional)"
-    echo "                          If not specified, CRUSH will calculate eigenvectors"
-    echo "                          automatically and select the best principal component"
-    echo ""
-    echo "  -r, --res VALUE         Desired resolution for analysis"
-    echo "                          Example: 10000 (for 10kb resolution)"
-    echo ""
     echo "================================================================================"
     echo ""
 
-    echo "OPTIONAL PARAMETERS:"
-    echo "--------------------"
+    echo "OUTPUT OPTIONS:"
+    echo "---------------"
     echo ""
-    echo "Output Options:"
     echo "  -o, --outpre PREFIX     Prefix for output files"
     echo "                          Default: No prefix"
     echo ""
@@ -194,14 +249,24 @@ function help {
     echo "                          0 = Disable header"
     echo "                          1 = Include header (default)"
     echo ""
-    echo "Performance Options:"
+    echo "================================================================================"
+    echo ""
+
+    echo "PERFORMANCE OPTIONS:"
+    echo "--------------------"
+    echo ""
     echo "  -c, --cpu NUMBER        Number of CPU threads to use"
     echo "                          Default: 1"
     echo ""
     echo "  -C, --cleanup [0|1]     Clean up temporary files after completion"
     echo "                          Default: 1 (cleanup enabled)"
     echo ""
-    echo "Analysis Options:"
+    echo "================================================================================"
+    echo ""
+
+    echo "ANALYSIS OPTIONS:"
+    echo "-----------------"
+    echo ""
     echo "  -A, --adjustment [0|1]  Adjust CRUSH values based on data distribution"
     echo "                          WARNING: Do NOT use when comparing Hi-C maps"
     echo "                          Default: 0 (disabled)"
@@ -218,9 +283,10 @@ function help {
     echo "  -l, --lowerthresh VALUE Lower threshold value"
     echo "                          Default: 0"
     echo ""
-    echo "  -w, --window VALUE      Sliding window size for score averaging"
-    echo "                          Default: Auto-calculated from sequencing depth"
-    echo "                          Set to 1 to disable sliding window"
+    echo "  -w, --window VALUE      Sliding window size for score averaging (in kb)"
+    echo "                          Default: 5"
+    echo "                          Set to 1 to disable smoothing entirely"
+    echo "                          Set to 0 for legacy auto-calculation from depth"
     echo ""
     echo "  -S, --switch [0|1]      Enable re-initialization of bins between resolutions"
     echo "                          0 = Bypass re-initialization"
@@ -235,11 +301,20 @@ function help {
     echo "  -Z, --eigenres VALUE    Resolution for eigenvector calculations"
     echo "                          Default: 100000 (100kb)"
     echo ""
+    echo "  -e, --eigenfile FILE    Supply your own eigenfile to initialize A and B states"
+    echo "                          If not provided, CRUSH calculates eigenvectors"
+    echo "                          automatically and selects the best principal component"
+    echo ""
     echo "  -s, --smoothing [0|1]   Apply smoothing to compartment boundaries"
     echo "                          0 = No smoothing (default)"
     echo "                          1 = Enable smoothing"
     echo ""
-    echo "Statistical Options:"
+    echo "================================================================================"
+    echo ""
+
+    echo "STATISTICAL OPTIONS:"
+    echo "--------------------"
+    echo ""
     echo "  -p, --pcalculation [0|1] Calculate p-values"
     echo "                           0 = Skip p-value calculation"
     echo "                           1 = Calculate (default)"
@@ -248,7 +323,12 @@ function help {
     echo "                           Default: 0.05"
     echo "                           Set to 0 to disable filtering"
     echo ""
-    echo "Advanced Options:"
+    echo "================================================================================"
+    echo ""
+
+    echo "ADVANCED OPTIONS:"
+    echo "-----------------"
+    echo ""
     echo "  -v, --verbose [0|1]     Enable verbose output messages"
     echo "                          Default: 0 (minimal output)"
     echo ""
@@ -256,7 +336,7 @@ function help {
     echo ""
     echo "  -E, --endZ VALUE        End Z-score value"
     echo ""
-    echo "  -u, --use [o|u]         Use existing GI tracks from previous calculations"
+    echo "  -use [o|u]              Use existing GI tracks from previous calculations"
     echo "                          'o' = Overwrite/recalculate (default)"
     echo "                          'u' = Use existing (useful for merging resolutions)"
     echo ""
@@ -264,11 +344,24 @@ function help {
     echo "                          Default: CRUSHtmp_RANDOM"
     echo "                          (Must not already exist)"
     echo ""
+    echo "  -gb, --genomebuild BUILD  Genome build: hg19, hg38, mm10, or mm9"
+    echo "                            Auto-fetches chrom.sizes, genes.bed, and Bbins.bed"
+    echo "                            into the crush working folder. -g, -a, -b optional."
+    echo "                            Only available for resolution >= 500bp — Bbins.bed"
+    echo "                            is pre-computed at 500bp resolution."
+    echo "                            For res < 500bp (any genome): supply -g, -a, and"
+    echo "                            -b FASTA manually so GC content is recalculated."
+    echo "                            For builds outside hg19/hg38/mm10/mm9: same."
+    echo ""
     echo "================================================================================"
     echo ""
     echo "EXAMPLES:"
     echo ""
-    echo "  Basic usage:"
+    echo "  With --genomebuild (automatic reference files):"
+    echo "    crush -i data.hic -gb hg38 -r 10000"
+    echo "    crush -i data.hic -gb hg38 -r 10000 -c 8 -o myproject_"
+    echo ""
+    echo "  With manual reference files:"
     echo "    crush -i data.hic -g hg19.sizes -a genes.bed -b genome.fa -r 10000"
     echo ""
     echo "  With multiple threads and custom output:"
@@ -301,6 +394,10 @@ while test $# -gt 0; do
     case "$1" in
         -h|--help)
             help
+            exit 0
+            ;;
+        --advanced-help)
+            advanced_help
             exit 0
             ;;
         -i|--hic)
@@ -410,9 +507,98 @@ while test $# -gt 0; do
         -Z|--eigenres)
             eigenres=$2
             ;;
+        -gb|--genomebuild)
+            genomebuild=$2
+            shift
+            ;;
     esac
     shift
 done
+
+CRUSH_SUPPORTED_BUILDS=("hg19" "hg38" "mm10" "mm9")
+genomebuild_supported=0
+
+if [ "$genomebuild" != "0" ]; then
+
+    # Universal rule: below 500bp requires the user to supply FASTA + sizes + genes.
+    # Pre-computed Bbins.bed are at 500bp and are too coarse for finer resolutions.
+    if [ "$res" != "0" ] && [ "$res" -lt 500 ] 2>/dev/null; then
+        echo ""
+        echo "Note: --genomebuild auto-fetch is unavailable for resolutions finer than 500bp."
+        echo "      Pre-computed Bbins.bed files are at 500bp resolution, which is too coarse"
+        echo "      for ${res}bp analysis. GC content must be recalculated at that resolution."
+        echo "      Please supply all three reference files manually:"
+        echo "        -g  chromosome sizes file"
+        echo "        -a  gene annotations BED (initialA)"
+        echo "        -b  genome FASTA file (for GC-content-based B-compartment seeds)"
+        echo ""
+    else
+        for _b in "${CRUSH_SUPPORTED_BUILDS[@]}"; do
+            if [ "$_b" == "$genomebuild" ]; then
+                genomebuild_supported=1
+                break
+            fi
+        done
+
+        if [ "$genomebuild_supported" -eq 0 ]; then
+            echo "Note: '${genomebuild}' does not have pre-built reference files."
+            echo "      Pre-built references are available for: hg19, hg38, mm10, mm9."
+            echo "      Please supply -g, -a, and -b manually for this genome."
+        else
+            # Download reference files directly into the crush working folder so the
+            # algorithm can access them without any path resolution issues.
+            CRUSH_REFCACHE="$(pwd)/${crushdir}/refs"
+            mkdir -p "${CRUSH_REFCACHE}"
+            JROWLEY_BASE="https://raw.githubusercontent.com/Kalluchiachyuth/CRUSH/main/genomes/${genomebuild}"
+
+            _fetch_ref() {
+                local url="$1"
+                local dest="$2"
+                local label="$3"
+                if [ -s "$dest" ]; then
+                    echo "Using existing ${label}: ${dest}"
+                    return 0
+                fi
+                if ! command -v curl &> /dev/null; then
+                    echo "Error: curl is required for --genomebuild but is not installed."
+                    exit 1
+                fi
+                echo "Fetching ${label} for ${genomebuild}..."
+                if ! curl -fsSL "$url" -o "$dest"; then
+                    rm -f "$dest"
+                    echo "Error: Could not fetch ${label} for build '${genomebuild}'."
+                    echo "  URL tried: ${url}"
+                    exit 1
+                fi
+                echo "Downloaded ${label} to ${dest}"
+            }
+
+            if [ -z "$sizefile" ]; then
+                _fetch_ref \
+                    "${JROWLEY_BASE}/${genomebuild}.chrom.sizes" \
+                    "${CRUSH_REFCACHE}/${genomebuild}.chrom.sizes" \
+                    "genome sizes"
+                sizefile="${CRUSH_REFCACHE}/${genomebuild}.chrom.sizes"
+            fi
+
+            if [ -z "$genesfile" ]; then
+                _fetch_ref \
+                    "${JROWLEY_BASE}/${genomebuild}_genes.bed" \
+                    "${CRUSH_REFCACHE}/${genomebuild}_genes.bed" \
+                    "gene annotations (initialA)"
+                genesfile="${CRUSH_REFCACHE}/${genomebuild}_genes.bed"
+            fi
+
+            if [ -z "$fastafile" ]; then
+                _fetch_ref \
+                    "${JROWLEY_BASE}/${genomebuild}_Bbins.bed" \
+                    "${CRUSH_REFCACHE}/${genomebuild}_Bbins.bed" \
+                    "B-compartment seeds (Bbins)"
+                fastafile="${CRUSH_REFCACHE}/${genomebuild}_Bbins.bed"
+            fi
+        fi
+    fi
+fi
 
 if [[ -z "$hicpath" ]]; then
     echo "You must specify a .hic or .mcool file! (local file or HTTPS link)"
@@ -440,8 +626,9 @@ if [ $switch == 0 ]; then
     echo "Warning: Re-evaluation & Re-iteration of A and B Bins has been deactivated. We recommend leaving this parameter alone to achieve the highest possible confidence and resolution."
 fi
 
-if [ -z "$sizefile" ] || [ -z "$genesfile" ] || [ -z "$fastafile" ]; then
-    echo "Missing one or more required arguments: --genomesize, --initialA, or --initialB!..."
+if [ "$genomebuild_supported" -eq 0 ] && { [ -z "$sizefile" ] || [ -z "$genesfile" ] || [ -z "$fastafile" ]; }; then
+    echo "Missing required arguments: supply either -gb GENOMEBUILD (hg19/hg38/mm10/mm9)"
+    echo "or all three of --genomesize, --initialA, and --initialB manually."
     help
     exit 1
 fi
@@ -454,7 +641,7 @@ if [ $adjustment == 1 ]; then
     echo "Warning: adjusting end compartmental values which may result in some loss of quantitative power. We recommend adjustment only for troubleshooting or when not comparing two samples."
 fi
 
-echo "CRUSH_v""$version"" --hic ""$hicpath"" --res ""$res"" --genomesize ""$sizefile"" --initialA ""$genesfile"" --initialB ""$fastafile"" --cpu ""$cpu"" --no-merge ""$doNotMerge"" --adjustment ""$adjustment"" --distance ""$distance"" --upperlim ""$upperlim"" --lowerthresh ""$lowerthresh"" --trackline ""$trackline"" --threshold ""$threshold"" --window ""$window"" --switch ""$switch"" --maxres ""$coarsestres"" --norm ""$norm"" --eigenres ""$eigenres"" --smoothing ""$smoothing" > "$outpre"CRUSHparamters.txt
+echo "CRUSH_v""$version"" --hic ""$hicpath"" --res ""$res"" --genomesize ""$sizefile"" --initialA ""$genesfile"" --initialB ""$fastafile"" --cpu ""$cpu"" --no-merge ""$doNotMerge"" --adjustment ""$adjustment"" --distance ""$distance"" --upperlim ""$upperlim"" --lowerthresh ""$lowerthresh"" --trackline ""$trackline"" --threshold ""$threshold"" --window ""$window"" --switch ""$switch"" --maxres ""$coarsestres"" --norm ""$norm"" --eigenres ""$eigenres"" --smoothing ""$smoothing"" --genomebuild ""$genomebuild" > "$outpre"CRUSHparamters.txt
 
 juiceorcool=`echo "$hicpath" | sed 's/\./\t/g' | sed 's/\./\t/g' | awk '{if ($NF == "hic") print 0; else if ($NF == "mcool") print 1; else print 2}'`
 
@@ -465,6 +652,110 @@ elif [ $juiceorcool == 0 ]; then
     echo "Identified .hic juicer format. We will use the pythonic hicstraw to extract the data and assume you have it installed, using pip install hic-straw."
 else
     echo "Identified .mcool format. We will use cooler to extract the data and assume you have it installed in your path."
+fi
+
+# ------------------------------------------------------------------------------
+# CHR PREFIX CHECKER
+# GitHub reference files are hosted without a chr prefix (plain '1', '2', 'X').
+# This block detects the exact prefix the Hi-C file uses (chr / Chr / CHR / none)
+# and the prefix in the sizefile, then:
+#   --genomebuild runs : auto-converts the downloaded files to match the Hi-C
+#   manual -g -a -b    : exits with a clear fix message if there is a mismatch
+# ------------------------------------------------------------------------------
+
+# Extract the exact leading alpha prefix from the first chromosome in the sizefile.
+# e.g. "chr1" -> "chr", "CHR1" -> "CHR", "1" -> ""
+sizechrprefix=$(awk 'NR==1{
+    if (tolower(substr($1,1,3)) == "chr") print substr($1,1,3)
+    else print ""
+}' "$sizefile")
+
+# Extract the exact prefix from the Hi-C file chromosome names.
+if [ $juiceorcool -eq 0 ]; then
+    hicchrprefix=$(python3 - "$hicpath" <<'PEOF'
+import hicstraw, sys, re
+try:
+    hic = hicstraw.HiCFile(sys.argv[1])
+    chroms = [c.name for c in hic.getChromosomes() if c.name.lower() != "all"]
+    if chroms:
+        m = re.match(r'^(chr)', chroms[0], re.IGNORECASE)
+        print(chroms[0][:3] if m else '')
+    else:
+        print('')
+except Exception:
+    print('?')
+PEOF
+)
+else
+    firstres=$(cooler ls "$hicpath" 2>/dev/null | head -1)
+    hicchrprefix=$(cooler info "${firstres}" 2>/dev/null | python3 -c "
+import json, sys, re
+try:
+    info = json.load(sys.stdin)
+    chroms = info.get('chromnames', [])
+    if chroms:
+        m = re.match(r'^(chr)', chroms[0], re.IGNORECASE)
+        print(chroms[0][:3] if m else '')
+    else:
+        print('')
+except Exception:
+    print('?')
+")
+fi
+
+if [ "$hicchrprefix" != "?" ] && [ "$sizechrprefix" != "$hicchrprefix" ]; then
+
+    if [ "$genomebuild_supported" -eq 1 ]; then
+        # Auto-convert: strip any existing chr prefix from col 1 then add the
+        # exact prefix the Hi-C file uses (handles chr->CHR, none->chr, etc.)
+        echo ""
+        echo "Note: Hi-C chromosomes use '${hicchrprefix:-no prefix}'; reference files"
+        echo "      use '${sizechrprefix:-no prefix}'. Auto-converting reference files..."
+
+        _convert_chr() {
+            local infile="$1"
+            local outfile="$2"
+            awk -v p="$hicchrprefix" '
+            BEGIN { FS="\t"; OFS="\t" }
+            {
+                if (tolower(substr($1,1,3)) == "chr") $1 = substr($1,4)
+                if (p != "") $1 = p $1
+                print
+            }' "$infile" > "$outfile"
+        }
+
+        _convert_chr "$sizefile"  "${CRUSH_REFCACHE}/converted.chrom.sizes"
+        _convert_chr "$genesfile" "${CRUSH_REFCACHE}/converted_genes.bed"
+        _convert_chr "$fastafile" "${CRUSH_REFCACHE}/converted_Bbins.bed"
+
+        sizefile="${CRUSH_REFCACHE}/converted.chrom.sizes"
+        genesfile="${CRUSH_REFCACHE}/converted_genes.bed"
+        fastafile="${CRUSH_REFCACHE}/converted_Bbins.bed"
+
+        echo "      Done. Running with '${hicchrprefix:-no prefix}' chromosome names."
+        echo ""
+
+    else
+        # Manual files: tell the user exactly what to fix.
+        echo ""
+        echo "ERROR: Chromosome naming mismatch between your Hi-C file and your reference files."
+        if [ -n "$hicchrprefix" ] && [ -z "$sizechrprefix" ]; then
+            echo "  Hi-C file uses '${hicchrprefix}' prefix  (e.g. '${hicchrprefix}1')"
+            echo "  Your -g / -a / -b files use no prefix   (e.g. '1')"
+            echo "  Fix: add '${hicchrprefix}' to column 1 of your -g, -a, and -b files."
+            echo "       e.g.  awk 'BEGIN{OFS=\"\t\"} {\$1=\"${hicchrprefix}\"\$1; print}' sizes.txt"
+        elif [ -z "$hicchrprefix" ] && [ -n "$sizechrprefix" ]; then
+            echo "  Hi-C file uses no prefix               (e.g. '1', '2', 'X')"
+            echo "  Your -g / -a / -b files use '${sizechrprefix}' prefix  (e.g. '${sizechrprefix}1')"
+            echo "  Fix: strip the prefix from column 1 of your -g, -a, and -b files."
+            echo "       e.g.  awk 'BEGIN{OFS=\"\t\"} {sub(/^${sizechrprefix}/,\"\",\$1); print}' sizes.txt"
+        else
+            echo "  Hi-C file uses '${hicchrprefix}' prefix, reference files use '${sizechrprefix}'."
+            echo "  Fix: ensure chromosome names in -g, -a, and -b match your Hi-C file exactly."
+        fi
+        echo ""
+        exit 1
+    fi
 fi
 
 
@@ -1566,7 +1857,7 @@ reprocess_resolutions_with_shifter() {
 ################################################################################
 
 echo "Creating and moving into temporary directory"
-mkdir $crushdir
+mkdir -p $crushdir
 cd $crushdir
 
 # Reading Resolutions

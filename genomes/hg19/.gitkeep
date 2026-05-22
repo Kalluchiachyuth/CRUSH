@@ -1,0 +1,4 @@
+# Place the following files here (all in no-chr format, e.g. '1' not 'chr1'):
+#   hg19.chrom.sizes
+#   hg19_genes.bed
+#   hg19_Bbins.bed   (pre-computed at 500bp resolution)

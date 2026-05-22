@@ -1,0 +1,4 @@
+# Place the following files here (all in no-chr format, e.g. '1' not 'chr1'):
+#   mm9.chrom.sizes
+#   mm9_genes.bed
+#   mm9_Bbins.bed   (pre-computed at 500bp resolution)
