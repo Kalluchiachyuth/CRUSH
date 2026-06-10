@@ -70,7 +70,8 @@ genomebuild=0
 # GitHub organisation hosting the reference files.
 # Change this one variable when moving from testing (Kalluchiachyuth) to
 # production (JRowleyLab) — nothing else in the script needs updating.
-CRUSH_GITHUB_ORG="Kalluchiachyuth"
+#CRUSH_GITHUB_ORG="Kalluchiachyuth"
+CRUSH_GITHUB_ORG="JRowleyLab"
 
 
 ################################################################################
