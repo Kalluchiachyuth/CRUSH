@@ -97,7 +97,7 @@ At the finest resolution, CRUSH calculates a t-statistic comparing each bin's A-
 ### Via PyPI (recommended)
 
 ```bash
-pip install CRUSH
+pip install CRUSH-hic
 ```
 
 ### Setting up a clean environment
@@ -108,7 +108,7 @@ We strongly recommend a dedicated conda environment:
 conda create -n crush_env python=3.10
 conda activate crush_env
 conda install -c bioconda bedtools
-pip install CRUSH hic-straw cooler numpy scipy pandas statsmodels tqdm
+pip install CRUSH-hic hic-straw cooler numpy scipy pandas statsmodels tqdm
 ```
 
 ### Installing mawk
