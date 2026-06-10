@@ -95,6 +95,19 @@ crush --help
 
 ## Quick Start
 
+### With genome build shortcut (supported builds: `hg19`, `hg38`, `mm10`, `mm9`; res ≥ 500 bp)
+
+```bash
+crush \
+  -i data.hic \
+  -gb hg38 \
+  -r 10000 \
+  -c 8 \
+  -o output_prefix_
+```
+
+### With manual reference files (any genome, any resolution)
+
 ```bash
 crush \
   -i data.hic \
@@ -106,20 +119,40 @@ crush \
   -o output_prefix_
 ```
 
-> ⚠️ **Important:** Chromosome names must match exactly across your Hi-C file, sizes file, gene BED file, and FASTA/B-state BED file (e.g., all use `chr1` or all use `1`). Mismatched chromosome names are the most common cause of empty or incorrect output.
+> **Chromosome naming:** CRUSH automatically detects and converts chromosome prefix mismatches between your Hi-C file and reference files (e.g., `chr1` vs `1`). If output is empty or unexpected, verify that your Hi-C file itself uses a consistent naming convention throughout.
 
 ---
 
 ## Input Files
 
+### Always required
+
 | Flag | Description |
 |---|---|
 | `-i` | Hi-C file (`.hic` from Juicer or `.mcool` from cooler). Local path or HTTPS URL. |
+| `-r` | Target resolution in base pairs (e.g., `10000` for 10 kb). Must exist in your Hi-C file. |
+
+### Reference files — choose one of two paths
+
+**PATH A — genome build shortcut** (res ≥ 500 bp only)
+
+| Flag | Description |
+|---|---|
+| `-gb` | Genome build shortcut. Supported builds: `hg19`, `hg38`, `mm10`, `mm9`. Auto-downloads chr.sizes, genes.bed, and Bbins.bed from JRowleyLab GitHub. Not available for res < 500 bp because the hosted Bbins.bed was pre-computed at 500 bp — for sub-500 bp analysis supply `-g`, `-a`, and `-b` (FASTA) manually so CRUSH can recompute Bbins at your exact resolution. Explicit `-g`/`-a`/`-b` flags override the auto-download for that specific file. |
+
+**PATH B — manual reference files** (any genome, any resolution)
+
+| Flag | Description |
+|---|---|
 | `-g` | Chromosome sizes file — two tab-separated columns: `chr_name` and `size` (bp). No header. |
 | `-a` | BED file (≥ 3 columns) for A-compartment initialization. Gene annotations work well. ChIP-seq peaks for an active histone mark (e.g., H3K27ac) also work. |
-| `-b` | FASTA file (GC content used to seed B compartments) **or** a BED file of known B-compartment regions. Using FASTA is recommended but slightly slower. |
-| `-r` | Target resolution in base pairs (e.g., `10000` for 10 kb). Must exist in your Hi-C file. |
-| `-e` | *(Optional)* Pre-computed eigenvector bedGraph (4 columns: chr, start, end, value). Positive = A, Negative = B. Skips automatic eigenvector calculation. |
+| `-b` | Genome FASTA **or** pre-computed Bbins BED for B-compartment initialization. With FASTA, CRUSH generates Bbins at 500 bp (res ≥ 500 bp) or at the input resolution (res < 500 bp). With BED, the file is used directly as B-compartment seeds. |
+
+### Optional
+
+| Flag | Description |
+|---|---|
+| `-e` | Pre-computed eigenvector bedGraph (4 columns: chr, start, end, value). Positive = A, Negative = B. Skips automatic eigenvector calculation. |
 
 ---
 
@@ -129,7 +162,7 @@ CRUSH produces four output files, each prefixed with whatever you supply via `-o
 
 | File | Description |
 |---|---|
-| `{prefix}CRUSHparameters.txt` | Record of all parameters used. Keep this for reproducibility. |
+| `{prefix}CRUSHparamters.txt` | Record of all parameters used. Keep this for reproducibility. |
 | `{prefix}mergedCrush_{res}.bedgraph` | **Main output.** CRUSH scores for every bin. Positive = A compartment, Negative = B compartment. Unlike eigenvectors, scores never need to be flipped. |
 | `{prefix}mergedqvalue_{res}.bedgraph` | Estimated q-value (BH-corrected) for each bin's score. |
 | `{prefix}mergedCrush_{res}_qfiltered_reprocess.bedgraph` | CRUSH scores filtered to bins passing the q-value threshold. Note: this filter can be overly stringent — excellent results are often obtained from the unfiltered `mergedCrush` file. |
@@ -145,11 +178,12 @@ While running, CRUSH creates a temporary working directory named `CRUSHtmp_[rand
 | Flag | Default | Description |
 |---|---|---|
 | `-c` | `1` | Number of CPU threads. Set to number of chromosomes or available cores, whichever is smaller. |
+| `-gb` | *(none)* | Genome build shortcut (`hg19`, `hg38`, `mm10`, `mm9`). Auto-downloads reference files. res ≥ 500 bp only. |
 | `-o` | *(none)* | Output file prefix. |
 | `-N` | `NONE` | Normalization: `NONE`, `VC`, `VC_SQRT`, `KR`, `SCALE`. |
 | `-m` | `2500000` | Coarsest resolution to start walking from. |
 | `-Z` | `100000` | Resolution for eigenvector calculation (100 kb recommended). |
-| `-w` | auto | Sliding window size (bins) for score smoothing. Set to `1` to disable. |
+| `-w` | `5` | Sliding window size (kb) for score averaging. Set to `1` to disable. Set to `0` for legacy auto-calculation from sequencing depth. |
 | `-q` | `0.05` | Q-value threshold for filtered output. Set to `0` to disable filtering. |
 | `-s` | `0` | Enable boundary smoothing (`1` = on). |
 | `-A` | `0` | Adjust score distribution. **Do not use when comparing samples.** |

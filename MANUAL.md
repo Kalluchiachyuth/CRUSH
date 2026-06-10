@@ -150,7 +150,30 @@ You should see the CRUSH usage banner with all available options.
 
 ## 5. Input File Requirements
 
-> ⚠️ **Critical: Chromosome names must match exactly across ALL input files.** Your Hi-C file, chromosome sizes file, gene BED file, and FASTA/B-state BED file must all use the same naming convention — either all `chr1`, `chr2`, etc. or all `1`, `2`, etc. Mismatched chromosome names are the most common cause of empty or incorrect output and will not always produce an obvious error message.
+> **Note on chromosome naming:** CRUSH automatically detects and converts chromosome prefix mismatches between your Hi-C file and your reference files (e.g., `chr1` vs `1`). If a mismatch is found, CRUSH converts the reference files to match your Hi-C file and prints a notice. No manual action is needed in most cases. If output is empty or unexpected, verify that your Hi-C file itself uses a consistent naming convention throughout.
+
+### Genome build shortcut (`-gb`) — optional
+
+CRUSH can automatically download the chromosome sizes file, gene annotations, and B-compartment bins for supported genome builds:
+
+```bash
+-gb hg38    # or hg19, mm10, mm9
+```
+
+**Supported builds:** `hg19`, `hg38`, `mm10`, `mm9`  
+**Resolution restriction:** only available for resolutions ≥ 500 bp. The Bbins.bed hosted on GitHub was pre-computed at 500 bp resolution, which is appropriate for analyses at 500 bp and coarser. For finer resolutions, Bbins need to be computed at your exact resolution — supply `-g`, `-a`, and `-b` (FASTA) manually so CRUSH can recalculate GC content at the correct bin size.
+
+Files are downloaded from the JRowleyLab GitHub into the temporary working directory. If you supply `-g`, `-a`, or `-b` explicitly alongside `-gb`, those explicit flags take priority over the auto-download for that specific file.
+
+```bash
+# Fully automatic
+crush -i data.hic -gb hg38 -r 10000 -c 8
+
+# Override only B-bins
+crush -i data.hic -gb hg38 -b myCustomBbins.bed -r 10000 -c 8
+```
+
+---
 
 ### Hi-C file (`-i`)
 
@@ -193,9 +216,12 @@ A BED file (minimum 3 columns: `chr`, `start`, `end`) defining regions to treat 
 
 ### B-state initialization file (`-b`)
 
-Either:
+`-b` accepts either a FASTA file or a pre-computed Bbins BED file.
 
-**A FASTA file** (recommended) — CRUSH calculates GC content across the genome, then identifies bins with below-average GC content as B-compartment seeds. This works well for most genomes and requires no prior knowledge of B-compartment regions.
+**A FASTA file** — CRUSH uses `bedtools nuc` to compute GC content across the genome and identifies bins with below-average GC content as B-compartment seeds (Bbins). This requires no prior knowledge of B-compartment regions and works at any resolution.
+
+- If your target resolution is ≥ 500 bp, Bbins are computed at **500 bp** resolution internally.
+- If your target resolution is < 500 bp, Bbins are computed at **the input resolution**.
 
 ```bash
 -b /path/to/genome.fa
@@ -206,11 +232,13 @@ The FASTA must be indexed (`.fai`). If it is not already indexed:
 samtools faidx genome.fa
 ```
 
-**A BED file** — If you have a set of known B-compartment regions (e.g., lamina-associated domains, pre-computed B-compartment calls), you can supply that directly:
+**A pre-computed Bbins BED file** — If you already have a BED file of B-compartment seed regions (e.g., from a previous CRUSH run, lamina-associated domains, or low-GC bins), supply it directly:
 
 ```bash
--b known_B_regions.bed
+-b known_Bbins.bed
 ```
+
+This file is used as-is; CRUSH does not recalculate GC content. This is appropriate at any resolution as long as the BED bins are suitable for that resolution.
 
 ### Eigenvector file (`-e`) — optional
 
@@ -238,7 +266,16 @@ For Juicer-generated `.hic` files, common available resolutions are: 2500000, 10
 
 ## 6. Running CRUSH
 
-### Minimal command
+### Minimal command — with genome build shortcut
+
+```bash
+crush \
+  -i sample.hic \
+  -gb hg38 \
+  -r 10000
+```
+
+### Minimal command — with manual reference files
 
 ```bash
 crush \
@@ -252,6 +289,15 @@ crush \
 ### With parallel processing and output prefix
 
 ```bash
+# Using genome build shortcut
+crush \
+  -i sample.hic \
+  -gb hg38 \
+  -r 10000 \
+  -c 8 \
+  -o sample1_
+
+# Using manual reference files
 crush \
   -i sample.hic \
   -g hg38.chrom.sizes \
@@ -313,15 +359,29 @@ crush ... -C 0
 
 ## 7. Complete Parameter Reference
 
-### Required
+### Always required
 
 | Flag | Long form | Description |
 |---|---|---|
 | `-i` | `--hic` | Hi-C file (`.hic` or `.mcool`). Local path or HTTPS URL. |
+| `-r` | `--res` | Target resolution in bp (e.g., `10000`). |
+| `-c` | `--cpu` | Number of CPU threads (default: `1`). |
+
+### Reference files — choose one of two paths
+
+**PATH A — genome build shortcut** (supported builds: `hg19`, `hg38`, `mm10`, `mm9`; res ≥ 500 bp only)
+
+| Flag | Long form | Description |
+|---|---|---|
+| `-gb` | `--genomebuild` | Auto-downloads chr.sizes, genes.bed, and Bbins.bed from JRowleyLab GitHub. Overridden by any explicit `-g`/`-a`/`-b` flags. Not available for res < 500 bp. |
+
+**PATH B — manual reference files** (any genome, any resolution)
+
+| Flag | Long form | Description |
+|---|---|---|
 | `-g` | `--genomesize` | Chromosome sizes file (2 columns: chr name, size in bp). |
 | `-a` | `--initialA` | BED file for A-compartment initialization (e.g., gene annotations). |
-| `-b` | `--initialB` | FASTA or BED file for B-compartment initialization. |
-| `-r` | `--res` | Target resolution in bp (e.g., `10000`). |
+| `-b` | `--initialB` | Genome FASTA **or** pre-computed Bbins BED for B-compartment initialization. FASTA: CRUSH generates Bbins at 500 bp (res ≥ 500 bp) or at input resolution (res < 500 bp). BED: used directly as B-compartment seeds at any resolution. |
 
 ### Output
 
@@ -356,7 +416,7 @@ crush ... -C 0
 | Flag | Long form | Default | Description |
 |---|---|---|---|
 | `-e` | `--eigenfile` | *(auto)* | Pre-computed eigenvector bedGraph. If not supplied, CRUSH calculates eigenvectors automatically. |
-| `-w` | `--window` | auto | Sliding window size (bins) for smoothing the CRUSH score. Auto-set based on sequencing depth. Set to `1` to disable. |
+| `-w` | `--window` | `5` | Sliding window size (in kb) for CRUSH score averaging. Set to `1` to disable. Set to `0` for legacy auto-calculation from sequencing depth. |
 | `-S` | `--switch` | `1` | Whether to re-evaluate A/B bin assignments between resolutions. Set to `0` to bypass (not recommended). |
 | `-d` | `--distance` | `0` | Minimum genomic distance from diagonal (bins) to include in scoring. |
 | `-u` | `--upperlim` | `0` | Maximum genomic distance from diagonal (bins) to include. `0` = no upper limit (use whole chromosome). |
@@ -390,7 +450,7 @@ CRUSH writes all output files to the **directory from which you ran the command*
 
 ### Primary output files
 
-**`{prefix}CRUSHparameters.txt`**  
+**`{prefix}CRUSHparamters.txt`**  
 A plain-text record of all parameters used in the run. Keep this file alongside your results for reproducibility.
 
 **`{prefix}mergedCrush_{res}.bedgraph`**  
@@ -421,7 +481,7 @@ The output bedGraph files include UCSC track headers and can be loaded directly 
 - **IGV** — File → Load from File
 - **WashU Epigenome Browser** — Upload as bedGraph track
 
-The default track configuration uses `viewLimits=-150:150` with a green (A compartment) / purple (B compartment) color scheme.
+The default track configuration uses `viewLimits=-150:150` with a red (A compartment) / black (B compartment) color scheme (`color=204,0,0 altColor=0,0,0`).
 
 ---
 
@@ -473,7 +533,7 @@ After a successful run you should see:
 test_fasta_mergedCrush_10000.bedgraph
 test_fasta_mergedqvalue_10000.bedgraph
 test_fasta_mergedCrush_10000_qfiltered_reprocess.bedgraph
-test_fasta_CRUSHparameters.txt
+test_fasta_CRUSHparamters.txt
 ```
 
 Load `test_fasta_mergedCrush_10000.bedgraph` into IGV or UCSC to verify that chr17–19 show the expected A/B compartment pattern. Positive values (A compartment) should align with gene-dense, GC-rich regions; negative values (B compartment) with gene-poor, GC-low regions.
@@ -495,26 +555,16 @@ Attempting very fine resolution with shallow sequencing will produce sparse, low
 
 ### Chromosome name matching
 
-This is the single most important thing to check before running. All input files must use identical chromosome naming:
+CRUSH automatically detects chromosome prefix mismatches between your Hi-C file and your reference files (e.g., `chr1` vs `1`, or `chr1` vs `CHR1`). When a mismatch is found, CRUSH converts the reference files to match your Hi-C chromosome naming convention and prints a notice. No manual file conversion is required in most cases.
+
+If CRUSH output is empty or unexpected after auto-conversion, the most likely cause is that your Hi-C file itself uses an inconsistent naming convention (e.g., a mix of `chr1` and `1` within the same file). You can verify what chromosome names your Hi-C file uses:
 
 ```bash
-# Check your Hi-C file chromosomes (for .hic)
+# Check .hic file chromosomes
 python3 -c "import hicstraw; h = hicstraw.HiCFile('sample.hic'); print(h.getChromosomes())"
 
-# Check your sizes file
-cut -f1 genome.chrom.sizes | head
-
-# Check your BED file
-cut -f1 genes.bed | sort -u | head
-```
-
-If your Hi-C file uses `1, 2, 3` but your BED files use `chr1, chr2, chr3`, convert them:
-```bash
-# Add chr prefix to sizes file
-awk '{print "chr"$0}' genome.sizes > genome_chr.sizes
-
-# Add chr prefix to BED file
-awk '{$1="chr"$1; print}' OFS="\t" genes.bed > genes_chr.bed
+# Check .mcool file chromosomes
+cooler info sample.mcool | grep chromnames
 ```
 
 ### Choosing the coarsest resolution (`-m`)
@@ -559,13 +609,13 @@ The Hi-C file has no data for that chromosome at that resolution. Expected for s
 Check that your file path is correct and ends in `.hic` or `.mcool`.
 
 **`Missing one or more required arguments`**  
-All five required flags must be present: `-i`, `-g`, `-a`, `-b`, `-r`.
+`-i` and `-r` are always required. For reference files, either supply `-gb` (for a supported build at res ≥ 500 bp) or all three of `-g`, `-a`, `-b`.
 
 **`size file is incorrect format`**  
 The chromosome sizes file must have exactly two tab-separated columns with no header line.
 
 **Empty output or all zeros**  
-Almost always caused by chromosome name mismatches across input files. Check that your Hi-C file, sizes file, gene BED, and FASTA all use the same chr naming convention.
+CRUSH auto-corrects chr prefix mismatches, so this is now less common. If it occurs, check that your Hi-C file uses a consistent chromosome naming convention throughout (not a mix of `chr1` and `1` in the same file). Also run with `-v 1` to see where processing stops.
 
 ---
 
