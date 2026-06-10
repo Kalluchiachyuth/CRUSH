@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "CRUSH-hic"
+version = "1.0.0"
+description = "Compartmental Refinement for Ultraprecise Stratification in Hi-C — A/B chromatin compartment analysis tool"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.8"
+authors = [
+    { name = "JRowleyLab", email = "kalluchiachyuth@hotmail.com" }
+]
+keywords = ["Hi-C", "chromatin", "compartments", "genomics", "bioinformatics"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+]
+dependencies = [
+    "hic-straw",
+    "cooler",
+    "numpy",
+    "scipy",
+    "pandas",
+    "statsmodels",
+    "tqdm",
+]
+
+[project.urls]
+Homepage = "https://github.com/Kalluchiachyuth/CRUSH"
+Repository = "https://github.com/Kalluchiachyuth/CRUSH"
+"Bug Tracker" = "https://github.com/Kalluchiachyuth/CRUSH/issues"
+
+[project.scripts]
+crush = "crush_hic.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["crush_hic*"]
+
+[tool.setuptools.package-data]
+crush_hic = ["CRUSH_v1.bash"]
