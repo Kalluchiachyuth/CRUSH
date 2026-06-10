@@ -60,7 +60,7 @@ The algorithm walks from coarse resolutions down to your target resolution, usin
 ## Installation
 
 ```bash
-pip install CRUSH
+pip install CRUSH-hic
 ```
 
 We recommend setting up a dedicated conda environment:
@@ -69,7 +69,7 @@ We recommend setting up a dedicated conda environment:
 conda create -n crush_env python=3.10
 conda activate crush_env
 conda install -c bioconda bedtools
-pip install CRUSH hic-straw cooler numpy scipy pandas statsmodels tqdm
+pip install CRUSH-hic hic-straw cooler numpy scipy pandas statsmodels tqdm
 ```
 
 ### Dependencies
