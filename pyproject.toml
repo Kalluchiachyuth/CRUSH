@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crush-hic"
-version = "1.0.0"
+version = "1.0.1"
 description = "Compartmental Refinement for Ultraprecise Stratification in Hi-C — A/B chromatin compartment analysis tool"
 readme = "README.md"
 license = { file = "LICENSE" }
