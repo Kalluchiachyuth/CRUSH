@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/CRUSH"><img src="https://img.shields.io/pypi/v/CRUSH.svg" alt="PyPI version"/></a>
+  <a href="https://pypi.org/project/crush-hic"><img src="https://img.shields.io/pypi/v/crush-hic.svg" alt="PyPI version"/></a>
   <a href="https://github.com/JRowleyLab/CRUSH/blob/main/LICENSE"><img src="https://img.shields.io/github/license/JRowleyLab/CRUSH" alt="License"/></a>
   <img src="https://img.shields.io/badge/python-3.8%2B-blue" alt="Python 3.8+"/>
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey" alt="Platform"/>
@@ -60,16 +60,29 @@ The algorithm walks from coarse resolutions down to your target resolution, usin
 ## Installation
 
 ```bash
-pip install CRUSH-hic
+pip install crush-hic
 ```
+
+> ⚠️ **`pip install` does not install `bedtools` or `mawk`** — these are system tools that must be installed separately before running CRUSH:
+>
+> ```bash
+> # Linux (apt)
+> sudo apt install bedtools mawk
+>
+> # macOS (Homebrew)
+> brew install bedtools mawk
+>
+> # Conda (any platform)
+> conda install -c bioconda bedtools mawk
+> ```
 
 We recommend setting up a dedicated conda environment:
 
 ```bash
 conda create -n crush_env python=3.10
 conda activate crush_env
-conda install -c bioconda bedtools
-pip install CRUSH-hic hic-straw cooler numpy scipy pandas statsmodels tqdm
+conda install -c bioconda bedtools mawk
+pip install crush-hic
 ```
 
 ### Dependencies
