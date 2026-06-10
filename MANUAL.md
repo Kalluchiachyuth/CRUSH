@@ -97,8 +97,21 @@ At the finest resolution, CRUSH calculates a t-statistic comparing each bin's A-
 ### Via PyPI (recommended)
 
 ```bash
-pip install CRUSH-hic
+pip install crush-hic
 ```
+
+> ⚠️ **`pip install` does not install `bedtools` or `mawk`** — these are system tools that must be installed separately before running CRUSH:
+>
+> ```bash
+> # Linux (apt)
+> sudo apt install bedtools mawk
+>
+> # macOS (Homebrew)
+> brew install bedtools mawk
+>
+> # Conda (any platform)
+> conda install -c bioconda bedtools mawk
+> ```
 
 ### Setting up a clean environment
 
@@ -107,20 +120,8 @@ We strongly recommend a dedicated conda environment:
 ```bash
 conda create -n crush_env python=3.10
 conda activate crush_env
-conda install -c bioconda bedtools
-pip install CRUSH-hic hic-straw cooler numpy scipy pandas statsmodels tqdm
-```
-
-### Installing mawk
-
-CRUSH uses `mawk` (a faster AWK implementation) internally. On most Linux systems it is already available. If not:
-
-```bash
-# Ubuntu/Debian
-sudo apt install mawk
-
-# macOS (via Homebrew)
-brew install mawk
+conda install -c bioconda bedtools mawk
+pip install crush-hic
 ```
 
 ### Verifying installation
@@ -136,15 +137,15 @@ You should see the CRUSH usage banner with all available options.
 | Tool | Purpose | Install command |
 |---|---|---|
 | Python ≥ 3.8 | Runtime | [python.org](https://www.python.org) |
-| bedtools | Genomic intersections | `conda install -c bioconda bedtools` |
-| mawk | Fast text processing | `sudo apt install mawk` |
-| hic-straw | Read `.hic` files | `pip install hic-straw` |
-| cooler | Read `.mcool` files | `pip install cooler` |
-| numpy | Numerical arrays | `pip install numpy` |
-| scipy | Statistics | `pip install scipy` |
-| pandas | Data frames | `pip install pandas` |
-| statsmodels | FDR correction | `pip install statsmodels` |
-| tqdm | Progress bars | `pip install tqdm` |
+| bedtools | Genomic intersections | `conda install -c bioconda bedtools` *(not via pip)* |
+| mawk | Fast text processing | `sudo apt install mawk` *(not via pip)* |
+| hic-straw | Read `.hic` files | installed automatically with `crush-hic` |
+| cooler | Read `.mcool` files | installed automatically with `crush-hic` |
+| numpy | Numerical arrays | installed automatically with `crush-hic` |
+| scipy | Statistics | installed automatically with `crush-hic` |
+| pandas | Data frames | installed automatically with `crush-hic` |
+| statsmodels | FDR correction | installed automatically with `crush-hic` |
+| tqdm | Progress bars | installed automatically with `crush-hic` |
 
 ---
 
